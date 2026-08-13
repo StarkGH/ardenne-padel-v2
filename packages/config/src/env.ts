@@ -36,10 +36,14 @@ const envSchema = z.object({
   LEGACY_SYNC_INTERVAL_SECONDS: z.coerce.number().int().positive().default(60),
   LEGACY_RECONCILIATION_INTERVAL_SECONDS: z.coerce.number().int().positive().default(300),
 
-  DOINSPORT_BASE_URL: z.string().optional(),
+  DOINSPORT_BASE_URL: z.string().default("https://api-principale.doinsport.club"),
   DOINSPORT_CLUB_LOGIN: z.string().optional(),
   DOINSPORT_CLUB_PASSWORD: z.string().optional(),
   DOINSPORT_CLUB_ID: z.string().optional(),
+  // Valeur de repli/comparaison uniquement — CDC §13.1 : l'ID réellement
+  // utilisé dans les appels est dérivé du JWT à l'authentification, jamais
+  // hardcodé aveuglément. Voir userclub-resolver.ts (résout V-008).
+  DOINSPORT_USERCLUB_ID: z.string().optional(),
 
   // --- Stripe / paiement ---
   STRIPE_SECRET_KEY: z.string().optional(),

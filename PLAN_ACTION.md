@@ -54,6 +54,8 @@ Estimations données pour une petite équipe (1 à 2 développeurs full-stack + 
 
 ## Lot 2 — Legacy adapter (Doinsport)
 
+**Statut : cœur de l'adapter fait et validé en conditions réelles.** Fait : interface `LegacyBookingProvider` complète, `LegacyDoinsportAdapter` (auth, listClients, listBookings avec refiltrage local, getBooking, listCourts, resolveLegacyPrice, createBooking, cancelBooking), résolveur `userClubId` robuste (V-008 résolu et vérifié en direct), résolveur de prix porté et testé par fixtures (résultat identique au cas réel documenté), mapping d'erreurs HTTP→codes V2, tables `courts`/`legacy_court_mapping`/`legacy_clients`/`legacy_booking_mappings`/`legacy_auth_tokens`, seed des 4 terrains avec UUID vérifiés en direct. Validé en live : authentification, listing terrains, résolution de prix réelle (résultat identique à `API-CATALOG.md`). Restant : tests d'écriture réels (`createBooking`/`cancelBooking`, à faire prudemment sur un créneau de test dédié, CDC §94), synchronisation périodique et réconciliation (dépendent de pg-boss, pas encore introduit), workflow complet d'idempotence après timeout (§16.2).
+
 **Objectif.** Encapsuler Doinsport derrière `LegacyDoinsportAdapter` implémentant `LegacyBookingProvider`, sans laisser fuiter les structures Legacy dans le reste du code.
 
 **Tâches :**

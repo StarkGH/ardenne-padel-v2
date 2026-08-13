@@ -98,6 +98,123 @@ model LoginAttempt {
   @@map("login_attempts")
 }
 
+// =====================================================================
+// Lot 2 — Legacy Doinsport adapter
+// =====================================================================
+//
+// Note de scope : le CDC §9 place `courts` dans le module Booking (Lot 3).
+// Le Lot 2 (adapter Legacy) a besoin d'une cible locale minimale pour que
+// `legacy_court_mapping` ait un sens et soit testable dès maintenant — la
+// définition ci-dessous reprend exactement les champs du CDC §9 (rien de
+// plus), donc aucune reprise n'est attendue au Lot 3 : il enrichira ce
+// modèle (relations availability/pricing) sans le redéfinir.
+//
+// `legacy_clients` reprend CDC §45 et fait aussi office de la table
+// `legacy_user_mapping` du CDC §14 (les deux définitions se recouvraient :
+// `linked_user_id` ici joue le rôle de `user_id`/`shadow_client_id` là-bas)
+// — simplification volontaire, une seule table plutôt que deux redondantes
+// (CDC §0 : "implémenter une solution simple, testable et réversible").
+//
+// `legacy_booking_mappings.booking_id` reste une simple chaîne (pas de
+// relation Prisma) tant que le module `bookings` (Lot 3) n'existe pas ;
+// à transformer en relation stricte dès son introduction.
+
+enum CourtType {
+  SIMPLE
+  DOUBLE
+}
+
+/// CDC §9 — terrains. Ne jamais baser la logique sur le nom (`slug`/`id`
+/// uniquement). Étendu au Lot 3 avec availability/pricing.
+model Court {
+  id            String    @id @default(uuid())
+  name          String
+  slug          String    @unique
+  courtType     CourtType @map("court_type")
+  capacity      Int
+  active        Boolean   @default(true)
+  displayOrder  Int       @map("display_order")
+  legacyPlaygroundId String? @unique @map("legacy_playground_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  legacyCourtMapping LegacyCourtMapping?
+
+  @@map("courts")
+}
+
+/// CDC §14 — table de mapping dédiée à l'adapter Legacy (le reste du code ne
+/// doit jamais avoir besoin de connaître `legacyActivityId`).
+model LegacyCourtMapping {
+  id                String   @id @default(uuid())
+  courtId           String   @unique @map("court_id")
+  court             Court    @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  legacyPlaygroundId String  @unique @map("legacy_playground_id")
+  legacyActivityId   String  @map("legacy_activity_id")
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("legacy_court_mapping")
+}
+
+/// CDC §45 (`legacy_clients`) — cache local minimal des clients Doinsport
+/// ("Shadow Client"), utilisé pour la recherche joueurs et la migration
+/// (CDC §7.3) sans jamais appeler `getClients()` à la volée (CDC §19.3).
+model LegacyClient {
+  id           String    @id @default(uuid())
+  provider     String    @default("DOINSPORT")
+  externalId   String    @unique @map("external_id")
+  firstName    String    @map("first_name")
+  lastName     String    @map("last_name")
+  email        String?
+  phone        String?
+  linkedUserId String?   @map("linked_user_id")
+  lastSyncedAt DateTime  @map("last_synced_at")
+  rawHash      String?   @map("raw_hash")
+
+  @@index([email])
+  @@index([linkedUserId])
+  @@map("legacy_clients")
+}
+
+enum LegacySyncStatus {
+  PENDING
+  CONFIRMED
+  CONFIRMATION_UNKNOWN
+  FAILED
+  CANCEL_PENDING
+  CANCELED
+}
+
+/// CDC §14/§45 — trace du lien entre une réservation V2 et sa contrepartie
+/// Legacy, y compris le marqueur de corrélation APV2 (CDC §16.1).
+model LegacyBookingMapping {
+  id             String           @id @default(uuid())
+  bookingId      String           @unique @map("booking_id")
+  legacyBookingId String?         @map("legacy_booking_id")
+  correlationMarker String        @unique @map("correlation_marker")
+  syncStatus     LegacySyncStatus @default(PENDING) @map("sync_status")
+  lastSyncAt     DateTime?        @map("last_sync_at")
+  lastError      String?          @map("last_error")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+
+  @@index([legacyBookingId])
+  @@map("legacy_booking_mappings")
+}
+
+/// Stockage du JWT club Doinsport (courte durée de vie, ~1h — CDC §13.1).
+/// Jamais loggé (CDC §57.1) ; conservé en base comme dans le code audité
+/// (`padel-service/db.js`), simplement porté de SQLite vers PostgreSQL.
+model LegacyAuthToken {
+  id        String   @id @default(uuid())
+  token     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("legacy_auth_tokens")
+}
+
 /// Journal d'audit append-only minimal (CDC §58) — enrichi lot par lot avec
 /// de nouvelles actions au fur et à mesure que les modules apparaissent.
 model AuditLog {
