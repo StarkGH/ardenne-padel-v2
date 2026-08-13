@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ardenne
+          POSTGRES_PASSWORD: ardenne
+          POSTGRES_DB: ardenne_padel_v2
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgres://ardenne:ardenne@localhost:5432/ardenne_padel_v2
+      SESSION_SECRET: ci-test-secret-not-for-prod
+      PUBLIC_BASE_URL: http://localhost:3001
+      API_BASE_URL: http://localhost:3000/api/v1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - name: Apply database migrations
+        run: npm run prisma:migrate:deploy --workspace apps/api
+
+      - run: npm run build
+
+      - run: npm test

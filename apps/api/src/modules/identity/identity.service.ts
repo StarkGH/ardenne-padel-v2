@@ -1,0 +1,193 @@
+import { AppError, ErrorCodes, logger } from "@ardenne/shared";
+import type { AppConfig } from "@ardenne/config";
+import type { IdentityRepository } from "./identity.repository.js";
+import type { EmailSender } from "./email-sender.js";
+import { hashPassword, verifyPassword } from "./password.js";
+import { generateOpaqueToken, hashToken } from "./tokens.js";
+
+export interface RegisterInput {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
+}
+
+export interface LoginInput {
+  email: string;
+  password: string;
+  ipAddress?: string;
+  userAgent?: string;
+}
+
+const MIN_PASSWORD_LENGTH = 10;
+
+export class IdentityService {
+  constructor(
+    private readonly repo: IdentityRepository,
+    private readonly config: AppConfig,
+    private readonly emailSender: EmailSender,
+  ) {}
+
+  private assertPasswordStrength(password: string): void {
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      throw new AppError(
+        ErrorCodes.VALIDATION_FAILED,
+        `Le mot de passe doit contenir au moins ${MIN_PASSWORD_LENGTH} caractères.`,
+        422,
+      );
+    }
+  }
+
+  async register(input: RegisterInput) {
+    this.assertPasswordStrength(input.password);
+
+    const existing = await this.repo.findUserByEmail(input.email);
+    if (existing) {
+      // CDC §111 : ne jamais révéler d'information utilisable pour énumérer les comptes.
+      throw new AppError(
+        ErrorCodes.EMAIL_ALREADY_REGISTERED,
+        "Impossible de créer ce compte avec ces informations.",
+        409,
+      );
+    }
+
+    const passwordHash = await hashPassword(input.password);
+    const user = await this.repo.createUser({
+      email: input.email,
+      passwordHash,
+      firstName: input.firstName,
+      lastName: input.lastName,
+      phone: input.phone,
+    });
+
+    await this.issueEmailVerification(user.id, user.email);
+
+    logger.info({ event: "UserRegistered", userId: user.id }, "user registered");
+    return { id: user.id, email: user.email, status: user.status };
+  }
+
+  private async issueEmailVerification(userId: string, email: string) {
+    const { raw, hash } = generateOpaqueToken();
+    const expiresAt = new Date(Date.now() + this.config.EMAIL_VERIFICATION_TOKEN_TTL_HOURS * 3600_000);
+    await this.repo.createEmailVerificationToken({ userId, tokenHash: hash, expiresAt });
+
+    const verificationUrl = `${this.config.PUBLIC_BASE_URL}/verify-email?token=${raw}`;
+    await this.emailSender.sendVerificationEmail(email, verificationUrl);
+  }
+
+  async resendVerificationEmail(email: string) {
+    const user = await this.repo.findUserByEmail(email);
+    // Réponse identique que l'utilisateur existe ou non (anti-énumération).
+    if (!user || user.status !== "PENDING_VERIFICATION") return;
+    await this.issueEmailVerification(user.id, user.email);
+  }
+
+  async verifyEmail(rawToken: string) {
+    const tokenHash = hashToken(rawToken);
+    const token = await this.repo.findValidEmailVerificationToken(tokenHash);
+    if (!token) {
+      throw new AppError(ErrorCodes.TOKEN_INVALID_OR_EXPIRED, "Lien de vérification invalide ou expiré.", 400);
+    }
+
+    await this.repo.markEmailVerificationTokenUsed(token.id);
+    const user = await this.repo.activateUser(token.userId);
+
+    logger.info({ event: "UserEmailVerified", userId: user.id }, "user email verified");
+    return { id: user.id, email: user.email, status: user.status };
+  }
+
+  async login(input: LoginInput) {
+    const windowMs = this.config.LOGIN_FAILED_ATTEMPTS_WINDOW_MINUTES * 60_000;
+    const recentFailures = await this.repo.countRecentFailedAttempts(input.email, windowMs);
+    if (recentFailures >= this.config.LOGIN_MAX_FAILED_ATTEMPTS) {
+      throw new AppError(
+        ErrorCodes.TOO_MANY_LOGIN_ATTEMPTS,
+        "Trop de tentatives échouées. Réessayez plus tard.",
+        429,
+      );
+    }
+
+    const user = await this.repo.findUserByEmail(input.email);
+    const passwordOk = user ? await verifyPassword(input.password, user.passwordHash) : false;
+
+    if (!user || !passwordOk) {
+      await this.repo.recordLoginAttempt({ email: input.email, ipAddress: input.ipAddress, success: false });
+      throw new AppError(ErrorCodes.INVALID_CREDENTIALS, "Identifiants invalides.", 401);
+    }
+
+    if (user.status === "DISABLED") {
+      await this.repo.recordLoginAttempt({ email: input.email, ipAddress: input.ipAddress, success: false });
+      throw new AppError(ErrorCodes.INVALID_CREDENTIALS, "Identifiants invalides.", 401);
+    }
+
+    if (user.status === "PENDING_VERIFICATION") {
+      throw new AppError(ErrorCodes.EMAIL_NOT_VERIFIED, "Merci de vérifier votre e-mail avant de vous connecter.", 403);
+    }
+
+    await this.repo.recordLoginAttempt({ email: input.email, ipAddress: input.ipAddress, success: true });
+    await this.repo.touchLastLogin(user.id);
+
+    const { raw, hash } = generateOpaqueToken();
+    const expiresAt = new Date(Date.now() + this.config.SESSION_TTL_DAYS * 86_400_000);
+    await this.repo.createSession({
+      userId: user.id,
+      tokenHash: hash,
+      expiresAt,
+      userAgent: input.userAgent,
+      ipAddress: input.ipAddress,
+    });
+
+    logger.info({ event: "UserLoggedIn", userId: user.id }, "user logged in");
+    return {
+      sessionToken: raw,
+      expiresAt,
+      user: { id: user.id, email: user.email, role: user.role, status: user.status },
+    };
+  }
+
+  async logout(rawSessionToken: string) {
+    await this.repo.revokeSessionByTokenHash(hashToken(rawSessionToken));
+  }
+
+  async logoutAll(userId: string) {
+    await this.repo.revokeAllSessionsForUser(userId);
+    logger.info({ event: "UserLoggedOutAllSessions", userId }, "all sessions revoked");
+  }
+
+  async getUserFromSessionToken(rawSessionToken: string) {
+    const session = await this.repo.findActiveSessionByTokenHash(hashToken(rawSessionToken));
+    if (!session) return null;
+    return session.user;
+  }
+
+  async requestPasswordReset(email: string) {
+    const user = await this.repo.findUserByEmail(email);
+    if (!user) return; // anti-énumération : pas d'erreur si l'e-mail est inconnu.
+
+    const { raw, hash } = generateOpaqueToken();
+    const expiresAt = new Date(Date.now() + this.config.PASSWORD_RESET_TOKEN_TTL_MINUTES * 60_000);
+    await this.repo.createPasswordResetToken({ userId: user.id, tokenHash: hash, expiresAt });
+
+    const resetUrl = `${this.config.PUBLIC_BASE_URL}/reset-password?token=${raw}`;
+    await this.emailSender.sendPasswordResetEmail(user.email, resetUrl);
+  }
+
+  async resetPassword(rawToken: string, newPassword: string) {
+    this.assertPasswordStrength(newPassword);
+
+    const tokenHash = hashToken(rawToken);
+    const token = await this.repo.findValidPasswordResetToken(tokenHash);
+    if (!token) {
+      throw new AppError(ErrorCodes.TOKEN_INVALID_OR_EXPIRED, "Lien de réinitialisation invalide ou expiré.", 400);
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+    await this.repo.updatePasswordHash(token.userId, passwordHash);
+    await this.repo.markPasswordResetTokenUsed(token.id);
+    // Réinitialiser le mot de passe révoque toutes les sessions actives par précaution.
+    await this.repo.revokeAllSessionsForUser(token.userId);
+
+    logger.info({ event: "UserPasswordReset", userId: token.userId }, "user password reset");
+  }
+}

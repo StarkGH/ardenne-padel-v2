@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ardenne
+      POSTGRES_PASSWORD: ardenne
+      POSTGRES_DB: ardenne_padel_v2
+    ports:
+      - "5432:5432"
+    volumes:
+      - ardenne_padel_v2_db:/var/lib/postgresql/data
+
+volumes:
+  ardenne_padel_v2_db:
