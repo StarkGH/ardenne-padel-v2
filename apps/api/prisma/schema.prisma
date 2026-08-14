@@ -36,9 +36,10 @@ model User {
   updatedAt        DateTime   @updatedAt @map("updated_at")
   lastLoginAt      DateTime?  @map("last_login_at")
 
-  sessions               Session[]
+  sessions                Session[]
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetToken[]
+  bookingsOrganized       Booking[]
 
   @@map("users")
 }
@@ -46,15 +47,15 @@ model User {
 /// Sessions serveur (pas de JWT stateless) pour permettre une révocation
 /// immédiate et une "déconnexion de toutes les sessions" triviale (CDC §7.2).
 model Session {
-  id         String    @id @default(uuid())
-  userId     String    @map("user_id")
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash  String    @unique @map("token_hash")
-  userAgent  String?   @map("user_agent")
-  ipAddress  String?   @map("ip_address")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  expiresAt  DateTime  @map("expires_at")
-  revokedAt  DateTime? @map("revoked_at")
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique @map("token_hash")
+  userAgent String?   @map("user_agent")
+  ipAddress String?   @map("ip_address")
+  createdAt DateTime  @default(now()) @map("created_at")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
 
   @@index([userId])
   @@map("sessions")
@@ -127,18 +128,23 @@ enum CourtType {
 /// CDC §9 — terrains. Ne jamais baser la logique sur le nom (`slug`/`id`
 /// uniquement). Étendu au Lot 3 avec availability/pricing.
 model Court {
-  id            String    @id @default(uuid())
-  name          String
-  slug          String    @unique
-  courtType     CourtType @map("court_type")
-  capacity      Int
-  active        Boolean   @default(true)
-  displayOrder  Int       @map("display_order")
-  legacyPlaygroundId String? @unique @map("legacy_playground_id")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id                 String    @id @default(uuid())
+  name               String
+  slug               String    @unique
+  courtType          CourtType @map("court_type")
+  capacity           Int
+  active             Boolean   @default(true)
+  displayOrder       Int       @map("display_order")
+  legacyPlaygroundId String?   @unique @map("legacy_playground_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   legacyCourtMapping LegacyCourtMapping?
+  openingRules       OpeningRule[]
+  courtClosures      CourtClosure[]
+  durationRules      DurationRule[]
+  tariffRules        TariffRule[]
+  bookings           Booking[]
 
   @@map("courts")
 }
@@ -146,14 +152,14 @@ model Court {
 /// CDC §14 — table de mapping dédiée à l'adapter Legacy (le reste du code ne
 /// doit jamais avoir besoin de connaître `legacyActivityId`).
 model LegacyCourtMapping {
-  id                String   @id @default(uuid())
-  courtId           String   @unique @map("court_id")
-  court             Court    @relation(fields: [courtId], references: [id], onDelete: Cascade)
-  legacyPlaygroundId String  @unique @map("legacy_playground_id")
-  legacyActivityId   String  @map("legacy_activity_id")
-  active            Boolean  @default(true)
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id                 String   @id @default(uuid())
+  courtId            String   @unique @map("court_id")
+  court              Court    @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  legacyPlaygroundId String   @unique @map("legacy_playground_id")
+  legacyActivityId   String   @map("legacy_activity_id")
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@map("legacy_court_mapping")
 }
@@ -162,16 +168,16 @@ model LegacyCourtMapping {
 /// ("Shadow Client"), utilisé pour la recherche joueurs et la migration
 /// (CDC §7.3) sans jamais appeler `getClients()` à la volée (CDC §19.3).
 model LegacyClient {
-  id           String    @id @default(uuid())
-  provider     String    @default("DOINSPORT")
-  externalId   String    @unique @map("external_id")
-  firstName    String    @map("first_name")
-  lastName     String    @map("last_name")
+  id           String   @id @default(uuid())
+  provider     String   @default("DOINSPORT")
+  externalId   String   @unique @map("external_id")
+  firstName    String   @map("first_name")
+  lastName     String   @map("last_name")
   email        String?
   phone        String?
-  linkedUserId String?   @map("linked_user_id")
-  lastSyncedAt DateTime  @map("last_synced_at")
-  rawHash      String?   @map("raw_hash")
+  linkedUserId String?  @map("linked_user_id")
+  lastSyncedAt DateTime @map("last_synced_at")
+  rawHash      String?  @map("raw_hash")
 
   @@index([email])
   @@index([linkedUserId])
@@ -188,17 +194,20 @@ enum LegacySyncStatus {
 }
 
 /// CDC §14/§45 — trace du lien entre une réservation V2 et sa contrepartie
-/// Legacy, y compris le marqueur de corrélation APV2 (CDC §16.1).
+/// Legacy, y compris le marqueur de corrélation APV2 (CDC §16.1). Relation
+/// stricte vers `Booking` depuis le Lot 3 (le Lot 2 utilisait une simple
+/// chaîne, `bookings` n'existait pas encore).
 model LegacyBookingMapping {
-  id             String           @id @default(uuid())
-  bookingId      String           @unique @map("booking_id")
-  legacyBookingId String?         @map("legacy_booking_id")
-  correlationMarker String        @unique @map("correlation_marker")
-  syncStatus     LegacySyncStatus @default(PENDING) @map("sync_status")
-  lastSyncAt     DateTime?        @map("last_sync_at")
-  lastError      String?          @map("last_error")
-  createdAt      DateTime         @default(now()) @map("created_at")
-  updatedAt      DateTime         @updatedAt @map("updated_at")
+  id                String           @id @default(uuid())
+  bookingId         String           @unique @map("booking_id")
+  booking           Booking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  legacyBookingId   String?          @map("legacy_booking_id")
+  correlationMarker String           @unique @map("correlation_marker")
+  syncStatus        LegacySyncStatus @default(PENDING) @map("sync_status")
+  lastSyncAt        DateTime?        @map("last_sync_at")
+  lastError         String?          @map("last_error")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
 
   @@index([legacyBookingId])
   @@map("legacy_booking_mappings")
@@ -215,18 +224,241 @@ model LegacyAuthToken {
   @@map("legacy_auth_tokens")
 }
 
+// =====================================================================
+// Lot 3 — Booking core (availability, pricing, bookings, social basique)
+// =====================================================================
+
+/// CDC §10.1 — créneaux d'ouverture. `courtId` nul = s'applique à tous les
+/// terrains. Ne jamais hardcoder les horaires dans le code (CDC §63).
+model OpeningRule {
+  id         String    @id @default(uuid())
+  courtId    String?   @map("court_id")
+  court      Court?    @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  dayOfWeek  Int       @map("day_of_week") // 0 = dimanche ... 6 = samedi
+  startTime  String    @map("start_time") // "HH:mm"
+  endTime    String    @map("end_time")
+  validFrom  DateTime  @map("valid_from")
+  validUntil DateTime? @map("valid_until")
+  active     Boolean   @default(true)
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([courtId])
+  @@map("opening_rules")
+}
+
+enum CourtClosureType {
+  MAINTENANCE
+  EVENT
+  ADMIN_BLOCK
+}
+
+/// CDC §10.1 — fermetures ponctuelles d'un terrain.
+model CourtClosure {
+  id          String           @id @default(uuid())
+  courtId     String           @map("court_id")
+  court       Court            @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  startAt     DateTime         @map("start_at")
+  endAt       DateTime         @map("end_at")
+  reason      String?
+  closureType CourtClosureType @map("closure_type")
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  @@index([courtId, startAt, endAt])
+  @@map("court_closures")
+}
+
+/// CDC §10.1 — durées autorisées selon terrain/plage horaire. `courtId` nul
+/// = s'applique à tous les terrains du `courtType` indiqué (lui aussi
+/// nullable = tous terrains).
+model DurationRule {
+  id                      String     @id @default(uuid())
+  courtId                 String?    @map("court_id")
+  court                   Court?     @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  courtType               CourtType? @map("court_type")
+  startTime               String     @map("start_time")
+  endTime                 String     @map("end_time")
+  allowedDurationsMinutes Int[]      @map("allowed_durations_minutes")
+  validFrom               DateTime   @map("valid_from")
+  validUntil              DateTime?  @map("valid_until")
+  active                  Boolean    @default(true)
+  createdAt               DateTime   @default(now()) @map("created_at")
+
+  @@index([courtId])
+  @@map("duration_rules")
+}
+
+/// CDC §11.1 — moteur tarifaire V2, priorité **explicite** (jamais déduite
+/// de `createdAt`). Champs en centimes entiers (CDC §80).
+model TariffRule {
+  id                       String     @id @default(uuid())
+  name                     String
+  active                   Boolean    @default(true)
+  courtId                  String?    @map("court_id")
+  court                    Court?     @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  courtType                CourtType? @map("court_type")
+  validFrom                DateTime   @map("valid_from")
+  validUntil               DateTime?  @map("valid_until")
+  daysOfWeek               Int[]      @map("days_of_week")
+  startTime                String     @map("start_time")
+  endTime                  String     @map("end_time")
+  durationMinutes          Int        @map("duration_minutes")
+  priceTotalCents          Int?       @map("price_total_cents")
+  pricePerParticipantCents Int?       @map("price_per_participant_cents")
+  referenceCapacity        Int        @map("reference_capacity")
+  priority                 Int
+  tags                     String[]
+  createdAt                DateTime   @default(now()) @map("created_at")
+  updatedAt                DateTime   @updatedAt @map("updated_at")
+
+  @@index([courtId, active])
+  @@map("tariff_rules")
+}
+
+enum BookingStatus {
+  DRAFT
+  CHECKOUT_PENDING
+  LEGACY_HOLD_PENDING
+  PAYMENT_PENDING
+  CONFIRMED
+  CANCEL_PENDING
+  CANCELED
+  COMPLETED
+  FAILED
+  MANUAL_REVIEW
+}
+
+enum PaymentStatus {
+  NONE
+  PENDING
+  PARTIALLY_PAID
+  PAID
+  GUARANTEE_ACTIVE
+  FAILED
+  REFUND_PENDING
+  PARTIALLY_REFUNDED
+  REFUNDED
+  AMOUNT_DUE
+}
+
+enum PaymentMode {
+  FULL
+  SPLIT
+}
+
+enum SplitServiceFeeAllocation {
+  ORGANIZER
+  PRO_RATA
+}
+
+enum BookingSource {
+  WEB
+  PWA
+  ADMIN
+  MIGRATION
+  LEGACY_SYNC
+  API_FUTURE
+}
+
+/// CDC §17, §45 — machine à états réservation. `legacySyncStatus` réutilise
+/// l'enum du Lot 2 (mêmes valeurs que CDC §17 "sous-état sync Legacy").
+model Booking {
+  id                        String                     @id @default(uuid())
+  organizerUserId           String                     @map("organizer_user_id")
+  organizer                 User                       @relation(fields: [organizerUserId], references: [id])
+  courtId                   String                     @map("court_id")
+  court                     Court                      @relation(fields: [courtId], references: [id])
+  startAt                   DateTime                   @map("start_at")
+  endAt                     DateTime                   @map("end_at")
+  durationMinutes           Int                        @map("duration_minutes")
+  status                    BookingStatus              @default(DRAFT)
+  legacySyncStatus          LegacySyncStatus?          @map("legacy_sync_status")
+  paymentStatus             PaymentStatus              @default(NONE) @map("payment_status")
+  paymentMode               PaymentMode                @default(FULL) @map("payment_mode")
+  bookingBasePriceCents     Int                        @map("booking_base_price_cents")
+  splitServiceFeeCents      Int?                       @map("split_service_fee_cents")
+  splitServiceFeeAllocation SplitServiceFeeAllocation? @map("split_service_fee_allocation")
+  priceTotalCents           Int                        @map("price_total_cents")
+  currency                  String                     @default("EUR")
+  source                    BookingSource              @default(WEB)
+  accessStatus              String?                    @map("access_status")
+  guaranteeType             String?                    @map("guarantee_type")
+  cancellationDeadline      DateTime?                  @map("cancellation_deadline")
+  tariffRuleId              String?                    @map("tariff_rule_id")
+  createdAt                 DateTime                   @default(now()) @map("created_at")
+  updatedAt                 DateTime                   @updatedAt @map("updated_at")
+  confirmedAt               DateTime?                  @map("confirmed_at")
+  canceledAt                DateTime?                  @map("canceled_at")
+
+  participants         BookingParticipant[]
+  legacyBookingMapping LegacyBookingMapping?
+
+  @@index([courtId, startAt, endAt])
+  @@index([organizerUserId])
+  @@map("bookings")
+}
+
+enum BookingParticipantRole {
+  ORGANIZER
+  PLAYER
+}
+
+enum BookingParticipantStatus {
+  INVITED
+  CONFIRMED
+  REMOVED
+}
+
+/// CDC §18.3, §76 — un participant référence soit un utilisateur V2, soit un
+/// client Legacy, soit une simple invitation e-mail, jamais les trois à la fois.
+model BookingParticipant {
+  id             String                   @id @default(uuid())
+  bookingId      String                   @map("booking_id")
+  booking        Booking                  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  userId         String?                  @map("user_id")
+  legacyClientId String?                  @map("legacy_client_id")
+  invitedEmail   String?                  @map("invited_email")
+  displayName    String                   @map("display_name")
+  role           BookingParticipantRole   @default(PLAYER)
+  status         BookingParticipantStatus @default(INVITED)
+  createdAt      DateTime                 @default(now()) @map("created_at")
+
+  @@index([bookingId])
+  @@index([userId])
+  @@map("booking_participants")
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
+}
+
+/// CDC §20 — modèle simple ; la réservation ne dépend jamais de l'existence
+/// d'une relation d'amitié.
+model Friendship {
+  id              String           @id @default(uuid())
+  requesterUserId String           @map("requester_user_id")
+  addresseeUserId String           @map("addressee_user_id")
+  status          FriendshipStatus @default(PENDING)
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  @@unique([requesterUserId, addresseeUserId])
+  @@index([addresseeUserId])
+  @@map("friendships")
+}
+
 /// Journal d'audit append-only minimal (CDC §58) — enrichi lot par lot avec
 /// de nouvelles actions au fur et à mesure que les modules apparaissent.
 model AuditLog {
-  id         String   @id @default(uuid())
-  actorUserId String? @map("actor_user_id")
-  action     String
-  targetType String?  @map("target_type")
-  targetId   String?  @map("target_id")
-  reason     String?
-  metadata   Json?
-  ipAddress  String?  @map("ip_address")
-  createdAt  DateTime @default(now()) @map("created_at")
+  id          String   @id @default(uuid())
+  actorUserId String?  @map("actor_user_id")
+  action      String
+  targetType  String?  @map("target_type")
+  targetId    String?  @map("target_id")
+  reason      String?
+  metadata    Json?
+  ipAddress   String?  @map("ip_address")
+  createdAt   DateTime @default(now()) @map("created_at")
 
   @@index([actorUserId])
   @@index([targetType, targetId])

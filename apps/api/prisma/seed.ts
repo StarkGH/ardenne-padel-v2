@@ -105,10 +105,61 @@ async function main() {
     });
   }
 
+  // Horaires/durées/tarifs V2 (CDC §10, §11) — valeurs de démonstration pour
+  // le développement local, pas des tarifs réels du club. À remplacer par la
+  // configuration back-office réelle au Lot 9.
+  const VALID_FROM = new Date("2020-01-01");
+  const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
+
+  const courts = await prisma.court.findMany();
+  for (const court of courts) {
+    await prisma.openingRule.deleteMany({ where: { courtId: court.id } });
+    await prisma.durationRule.deleteMany({ where: { courtId: court.id } });
+    await prisma.tariffRule.deleteMany({ where: { courtId: court.id } });
+
+    for (const day of ALL_DAYS) {
+      await prisma.openingRule.create({
+        data: { courtId: court.id, dayOfWeek: day, startTime: "08:00", endTime: "22:00", validFrom: VALID_FROM },
+      });
+    }
+
+    await prisma.durationRule.create({
+      data: {
+        courtId: court.id,
+        startTime: "00:00",
+        endTime: "23:59",
+        allowedDurationsMinutes: [60, 90],
+        validFrom: VALID_FROM,
+      },
+    });
+
+    const isDouble = court.courtType === "DOUBLE";
+    for (const duration of [60, 90] as const) {
+      await prisma.tariffRule.create({
+        data: {
+          name: `${court.name} — ${duration}min`,
+          courtId: court.id,
+          validFrom: VALID_FROM,
+          daysOfWeek: ALL_DAYS,
+          startTime: "00:00",
+          endTime: "23:59",
+          durationMinutes: duration,
+          priceTotalCents: isDouble
+            ? duration === 60 ? 4800 : 7200
+            : duration === 60 ? 2400 : 3600,
+          referenceCapacity: court.capacity,
+          priority: 10,
+          tags: [],
+        },
+      });
+    }
+  }
+
   console.log("Seed terminé. Comptes dev (mot de passe: DevPassword123!) :");
   console.log("  - admin@dev.ardenne-padel.local (ADMIN)");
   console.log("  - joueur1@dev.ardenne-padel.local (CUSTOMER)");
   console.log("4 terrains + mapping Legacy créés (Padel 1-4).");
+  console.log("Horaires 08:00-22:00, durées 60/90min, tarifs de démonstration créés pour chaque terrain.");
 }
 
 main()

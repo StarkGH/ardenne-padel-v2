@@ -79,6 +79,8 @@ Estimations données pour une petite équipe (1 à 2 développeurs full-stack + 
 
 ## Lot 3 — Booking core
 
+**Statut : gate de sortie atteint et vérifié manuellement.** Fait : modules `availability` (calcul pur testé + orchestration Dual Run documentée dans ADR-0003), `pricing` (moteur V2 déterministe, priorité explicite), `bookings` (machine à états complète, orchestration CDC §27 avec paiement simulé — ADR-0004, comparaison prix V2/Legacy avec log `PriceMismatch`). 61 tests (dont un faux `LegacyBookingProvider` couvrant succès/collision/erreur/lien Legacy manquant). Vérifié manuellement de bout en bout via le serveur réel : disponibilité → devis (72,00 € Padel 3/90min) → connexion → réservation `CONFIRMED`/`PAID`, sans toucher Doinsport (`LEGACY_WRITE_ENABLED=false`). Restant : endpoints participants (`POST/DELETE .../participants`), recherche joueurs + `friendship` (modèle en base, service/routes pas encore écrits), panier de réservation survivant à l'authentification tardive (§18.2, nécessite un état côté frontend qui n'existe pas encore), protection anti-double-réservation locale quand Legacy est désactivé.
+
 **Objectif.** Cœur métier réservation, indépendant de tout provider de paiement.
 
 **Tâches :**
