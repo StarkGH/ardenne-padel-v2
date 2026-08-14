@@ -83,5 +83,30 @@ export function createRealStripeClient(secretKey: string): StripeClientPort {
         return { id: event.id, type: event.type, data: { object: event.data.object as unknown as Record<string, unknown> } };
       },
     },
+    terminal: {
+      async createConnectionToken(location) {
+        const token = await stripe.terminal.connectionTokens.create(location ? { location } : undefined);
+        return { secret: token.secret };
+      },
+      async createPaymentIntent(params) {
+        // CDC §22.3 : ["card_present"] uniquement — jamais un moyen web
+        // reclassé artificiellement en card_present (CDC §111).
+        const pi = await stripe.paymentIntents.create({
+          amount: params.amount,
+          currency: params.currency,
+          payment_method_types: ["card_present"],
+          capture_method: params.captureMethod,
+        });
+        return toPaymentIntentLike(pi);
+      },
+      async capturePaymentIntent(id) {
+        const pi = await stripe.paymentIntents.capture(id);
+        return toPaymentIntentLike(pi);
+      },
+      async cancelPaymentIntent(id) {
+        const pi = await stripe.paymentIntents.cancel(id);
+        return toPaymentIntentLike(pi);
+      },
+    },
   };
 }

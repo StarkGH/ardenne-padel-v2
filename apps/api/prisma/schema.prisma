@@ -791,6 +791,90 @@ model BookingShare {
   @@map("booking_shares")
 }
 
+// =====================================================================
+// Lot 7 — Kiosque / Terminal
+// =====================================================================
+
+enum KioskDeviceStatus {
+  ACTIVE
+  REVOKED
+}
+
+/// CDC §22.6, §59.2 — dispositif enregistré et révocable. Le secret n'est
+/// jamais stocké en clair (seul son hash), même logique que les tokens
+/// d'invitation/vérification (CDC §57.1).
+model KioskDevice {
+  id            String            @id @default(uuid())
+  name          String
+  location      String?
+  status        KioskDeviceStatus @default(ACTIVE)
+  deviceKeyHash String            @unique @map("device_key_hash")
+  capabilities  String[]
+  lastSeenAt    DateTime?         @map("last_seen_at")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  revokedAt     DateTime?         @map("revoked_at")
+
+  checkoutSessions KioskCheckoutSession[]
+
+  @@map("kiosk_devices")
+}
+
+enum KioskSessionStatus {
+  PENDING
+  CLAIMED
+  COMPLETED
+  EXPIRED
+  CANCELED
+}
+
+/// CDC §22.2 — session de reprise QR. Le "booking draft" du CDC est ici
+/// représenté par les champs de créneau (`courtId`/`startAt`/`durationMinutes`)
+/// tant que personne n'est authentifié ; `bookingId` n'est renseigné qu'après
+/// la réclamation (CDC §22.2 étape 5 : "le smartphone reprend exactement le
+/// checkout en cours"), pour ne jamais exiger un organisateur avant qu'un
+/// utilisateur réel ne soit identifié.
+model KioskCheckoutSession {
+  id              String             @id @default(uuid())
+  kioskDeviceId   String             @map("kiosk_device_id")
+  kioskDevice     KioskDevice        @relation(fields: [kioskDeviceId], references: [id])
+  courtId         String             @map("court_id")
+  startAt         DateTime           @map("start_at")
+  durationMinutes Int                @map("duration_minutes")
+  paymentMode     PaymentMode        @default(FULL) @map("payment_mode")
+  tokenHash       String             @unique @map("token_hash")
+  status          KioskSessionStatus @default(PENDING)
+  bookingId       String?            @unique @map("booking_id")
+  claimedByUserId String?            @map("claimed_by_user_id")
+  expiresAt       DateTime           @map("expires_at")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  completedAt     DateTime?          @map("completed_at")
+
+  @@index([kioskDeviceId, status])
+  @@map("kiosk_checkout_sessions")
+}
+
+enum TerminalDeviceStatus {
+  ACTIVE
+  OFFLINE
+  REVOKED
+}
+
+/// CDC §22.3-§22.4 — lecteur Stripe Terminal enregistré. Ne jamais coupler
+/// le domaine à un modèle de lecteur précis (CDC §22.4).
+model TerminalDevice {
+  id               String               @id @default(uuid())
+  provider         String               @default("stripe")
+  providerDeviceId String               @unique @map("provider_device_id")
+  name             String
+  location         String?
+  status           TerminalDeviceStatus @default(ACTIVE)
+  capabilities     String[]
+  lastSeenAt       DateTime?            @map("last_seen_at")
+  createdAt        DateTime             @default(now()) @map("created_at")
+
+  @@map("terminal_devices")
+}
+
 /// Journal d'audit append-only minimal (CDC §58) — enrichi lot par lot avec
 /// de nouvelles actions au fur et à mesure que les modules apparaissent.
 model AuditLog {

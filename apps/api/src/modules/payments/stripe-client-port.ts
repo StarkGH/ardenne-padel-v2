@@ -36,6 +36,17 @@ export interface StripeClientPort {
   webhooks: {
     constructEvent(payload: string | Buffer, signature: string, secret: string): StripeEventLike;
   };
+  /** CDC §22.3-§22.4 — Stripe Terminal (card-present). */
+  terminal: {
+    createConnectionToken(location?: string): Promise<{ secret: string }>;
+    createPaymentIntent(params: {
+      amount: number;
+      currency: string;
+      captureMethod: "automatic" | "manual";
+    }): Promise<StripePaymentIntentLike>;
+    capturePaymentIntent(id: string): Promise<StripePaymentIntentLike>;
+    cancelPaymentIntent(id: string): Promise<StripePaymentIntentLike>;
+  };
 }
 
 export interface StripePaymentIntentLike {

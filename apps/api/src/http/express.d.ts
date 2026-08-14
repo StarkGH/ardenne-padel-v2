@@ -10,6 +10,10 @@ declare global {
         role: Role;
         status: UserStatus;
       };
+      kioskDevice?: {
+        id: string;
+        name: string;
+      };
     }
   }
 }

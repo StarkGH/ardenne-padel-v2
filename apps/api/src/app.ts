@@ -45,6 +45,16 @@ import { createWalletRouter } from "./modules/wallet/wallet.routes.js";
 import { CreditPacksRepository } from "./modules/credit-packs/credit-packs.repository.js";
 import { CreditPackService } from "./modules/credit-packs/credit-pack.service.js";
 import { createCreditPacksRouter } from "./modules/credit-packs/credit-packs.routes.js";
+import { KioskDeviceRepository } from "./modules/kiosk/kiosk-device.repository.js";
+import { KioskDeviceService } from "./modules/kiosk/kiosk-device.service.js";
+import { KioskCheckoutSessionRepository } from "./modules/kiosk/kiosk-checkout-session.repository.js";
+import { KioskCheckoutSessionService } from "./modules/kiosk/kiosk-checkout-session.service.js";
+import { createKioskRouter } from "./modules/kiosk/kiosk.routes.js";
+import { TerminalDeviceRepository } from "./modules/payments/terminal-device.repository.js";
+import { StripeTerminalProvider } from "./modules/payments/stripe-terminal-provider.js";
+import { UnconfiguredTerminalProvider } from "./modules/payments/unconfigured-terminal-provider.js";
+import { createTerminalRouter } from "./modules/payments/terminal.routes.js";
+import type { TerminalProvider } from "./modules/payments/terminal-provider.js";
 
 export interface AppDependencies {
   prisma: PrismaClient;
@@ -58,6 +68,9 @@ export interface AppDependencies {
   paymentProvider?: PaymentProvider;
   /** Injectable pour les tests (webhook signature verification). */
   stripeClient?: StripeClientPort;
+  /** Injectable pour les tests (fake) ; sinon `StripeTerminalProvider` réel si
+   * `STRIPE_SECRET_KEY` est configuré, `UnconfiguredTerminalProvider` sinon. */
+  terminalProvider?: TerminalProvider;
 }
 
 /**
@@ -65,7 +78,7 @@ export interface AppDependencies {
  * (plutôt que des singletons globaux) pour rester testable en intégration
  * avec une base de test dédiée (voir tests/).
  */
-export function createApp({ prisma, config, emailSender, legacyProvider, paymentProvider, stripeClient }: AppDependencies): Express {
+export function createApp({ prisma, config, emailSender, legacyProvider, paymentProvider, stripeClient, terminalProvider }: AppDependencies): Express {
   const app = express();
 
   app.disable("x-powered-by");
@@ -147,6 +160,21 @@ export function createApp({ prisma, config, emailSender, legacyProvider, payment
   app.use("/api/v1", createPaymentsRouter(checkoutService, splitCheckoutService, bookingsRepository, paymentsRepository, payments));
   app.use("/api/v1", createWalletRouter(walletService, walletRepository));
   app.use("/api/v1", createCreditPacksRouter(creditPackService, creditPacksRepository));
+
+  const kioskDeviceRepository = new KioskDeviceRepository(prisma);
+  const kioskDeviceService = new KioskDeviceService(kioskDeviceRepository);
+  const kioskCheckoutSessionRepository = new KioskCheckoutSessionRepository(prisma);
+  const kioskCheckoutSessionService = new KioskCheckoutSessionService(
+    kioskCheckoutSessionRepository,
+    bookingsService,
+    bookingsRepository,
+    config,
+  );
+  const terminalDeviceRepository = new TerminalDeviceRepository(prisma);
+  const terminal = terminalProvider ?? (config.STRIPE_SECRET_KEY ? new StripeTerminalProvider(stripe) : new UnconfiguredTerminalProvider());
+
+  app.use("/api/v1", createKioskRouter(kioskDeviceService, kioskCheckoutSessionService));
+  app.use("/api/v1", createTerminalRouter(kioskDeviceService, terminal, terminalDeviceRepository, config));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

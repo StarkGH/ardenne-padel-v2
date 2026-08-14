@@ -1,7 +1,7 @@
 # ADR 0010 — Canal de paiement ONLINE (Stripe)
 
 ## Statut
-Accepté pour le canal ONLINE (QR_HANDOFF et TERMINAL restent à trancher au Lot 7)
+Accepté pour le canal ONLINE. QR_HANDOFF et TERMINAL tranchés au Lot 7 — voir [ADR-0014](./0014-kiosque-stripe-terminal.md).
 
 ## Date
 2026-08-14

@@ -47,6 +47,13 @@ export class BookingShareService {
       throw new Error("createSharesAndInvite: le nombre de participants doit correspondre au nombre de parts - 1 (organisateur)");
     }
 
+    // `createMany` s'exécute en un seul INSERT : `now()` y est évalué une
+    // seule fois pour toutes les lignes (sémantique Postgres), donc un
+    // `createdAt` implicite identique pour les 4 parts -> tri
+    // `orderBy: createdAt` non déterministe entre elles. On force un
+    // `createdAt` explicite et strictement croissant (organisateur en
+    // premier) pour que `listForBooking`/`shares[0]` reste fiable.
+    const baseTimestamp = Date.now();
     const organizerShare = input.shares[0]!;
     const rows = [
       {
@@ -60,6 +67,7 @@ export class BookingShareService {
         paidByUserId: input.organizerUserId,
         paymentId: input.organizerPaymentId,
         paidAt: new Date(),
+        createdAt: new Date(baseTimestamp),
       },
       ...input.shares.slice(1).map((share, i) => ({
         id: randomUUID(),
@@ -71,6 +79,7 @@ export class BookingShareService {
         serviceFeeAmountCents: share.serviceFeeAmountCents,
         totalAmountCents: share.totalAmountCents,
         status: "OPEN" as const,
+        createdAt: new Date(baseTimestamp + i + 1),
       })),
     ];
     await this.repo.createMany(rows);

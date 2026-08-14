@@ -78,6 +78,8 @@ const envSchema = z.object({
   ACCESS_ENABLED_BEFORE_MINUTES: z.coerce.number().int().nonnegative().default(15),
   ACCESS_ENABLED_AFTER_MINUTES: z.coerce.number().int().nonnegative().default(15),
   KIOSK_DEVICE_SECRET: z.string().optional(),
+  KIOSK_SESSION_TTL_MINUTES: z.coerce.number().int().positive().default(10),
+  KIOSK_OFFLINE_THRESHOLD_MINUTES: z.coerce.number().int().positive().default(5),
 
   MIGRATION_INVITATIONS_ENABLED: boolFromString.default("false"),
   ADMIN_MOVE_ENABLED: boolFromString.default("false"),
