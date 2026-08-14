@@ -20,6 +20,22 @@ export class CreditPacksRepository {
     return this.db.creditPack.findUnique({ where: { id } });
   }
 
+  listAll() {
+    return this.db.creditPack.findMany({ orderBy: [{ active: "desc" }, { displayOrder: "asc" }] });
+  }
+
+  create(data: Prisma.CreditPackCreateInput) {
+    return this.db.creditPack.create({ data });
+  }
+
+  update(id: string, data: Prisma.CreditPackUpdateInput) {
+    return this.db.creditPack.update({ where: { id }, data });
+  }
+
+  deactivate(id: string) {
+    return this.db.creditPack.update({ where: { id }, data: { active: false } });
+  }
+
   createPurchase(data: Prisma.CreditPackPurchaseCreateInput) {
     return this.db.creditPackPurchase.create({ data });
   }

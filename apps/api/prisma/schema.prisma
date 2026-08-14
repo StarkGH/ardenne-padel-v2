@@ -43,6 +43,7 @@ model User {
   payments                Payment[]
   walletAccount           WalletAccount?
   creditPackPurchases     CreditPackPurchase[]
+  clientNotes             ClientNote[]
 
   @@map("users")
 }
@@ -983,4 +984,24 @@ model NotificationOutbox {
 
   @@index([status, scheduledFor])
   @@map("notification_outbox")
+}
+
+// =====================================================================
+// Lot 9 — Back-office
+// =====================================================================
+
+/// CDC §40 — "notes administratives" de la fiche client. `authorUserId` en
+/// simple string (pas de relation) : même choix que `AuditLog.actorUserId`,
+/// pour ne jamais bloquer la suppression d'un compte admin sur ses notes
+/// passées (l'historique reste lisible, l'acteur peut disparaître).
+model ClientNote {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  user         User     @relation(fields: [userId], references: [id])
+  authorUserId String   @map("author_user_id")
+  body         String
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("client_notes")
 }

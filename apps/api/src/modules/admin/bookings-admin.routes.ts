@@ -1,0 +1,57 @@
+import { Router } from "express";
+import { z } from "zod";
+import { AppError, ErrorCodes } from "@ardenne/shared";
+import { requireAuth, requireRole } from "../../http/auth-middleware.js";
+import type { BookingsAdminService } from "./bookings-admin.service.js";
+
+const dashboardQuerySchema = z.object({
+  from: z.string().datetime({ offset: true }),
+  to: z.string().datetime({ offset: true }),
+});
+
+const cancelSchema = z.object({ reason: z.string().min(1).max(500) });
+const resyncSchema = z.object({ reason: z.string().max(500).optional() });
+
+function parseOrThrow<T>(schema: z.ZodType<T>, data: unknown): T {
+  const parsed = schema.safeParse(data);
+  if (!parsed.success) {
+    throw new AppError(ErrorCodes.VALIDATION_FAILED, "Paramètres invalides.", 422, {
+      issues: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })),
+    });
+  }
+  return parsed.data;
+}
+
+/** CDC §39.1-§39.2 — dashboard planning et actions rapides admin. */
+export function createBookingsAdminRouter(service: BookingsAdminService): Router {
+  const router = Router();
+
+  router.get("/admin/bookings", requireAuth, requireRole("STAFF"), async (req, res, next) => {
+    try {
+      const { from, to } = parseOrThrow(dashboardQuerySchema, req.query);
+      res.status(200).json({ data: await service.listForDashboard(from, to) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post("/admin/bookings/:id/cancel", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
+    try {
+      const { reason } = parseOrThrow(cancelSchema, req.body);
+      res.status(200).json({ data: await service.adminCancel(req.params.id!, req.authUser!.id, reason) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post("/admin/bookings/:id/force-resync", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
+    try {
+      const { reason } = parseOrThrow(resyncSchema, req.body ?? {});
+      res.status(200).json({ data: await service.forceResync(req.params.id!, req.authUser!.id, reason) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  return router;
+}

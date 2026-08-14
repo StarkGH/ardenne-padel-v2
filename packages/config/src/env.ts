@@ -84,6 +84,11 @@ const envSchema = z.object({
   MIGRATION_INVITATIONS_ENABLED: boolFromString.default("false"),
   ADMIN_MOVE_ENABLED: boolFromString.default("false"),
   NATIVE_API_FUTURE: boolFromString.default("false"),
+
+  // CDC §39.3 — un hold wallet ACTIVE plus vieux que ce seuil est considéré
+  // "bloqué" dans les indicateurs de santé back-office (aucune définition
+  // métier précise au CDC ; valeur configurable plutôt que hardcodée).
+  WALLET_HOLD_STALE_HOURS: z.coerce.number().int().positive().default(24),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

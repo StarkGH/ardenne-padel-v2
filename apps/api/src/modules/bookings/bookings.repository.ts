@@ -23,6 +23,15 @@ export class BookingsRepository {
     });
   }
 
+  /** CDC §39.1 — données du dashboard planning multi-terrains (timeline commune). */
+  listInRange(fromDate: Date, toDate: Date) {
+    return this.db.booking.findMany({
+      where: { startAt: { gte: fromDate, lt: toDate } },
+      orderBy: { startAt: "asc" },
+      include: { participants: true, legacyBookingMapping: true, court: true, organizer: { select: { id: true, firstName: true, lastName: true, email: true } } },
+    });
+  }
+
   updateStatus(id: string, status: BookingStatus, extra: Prisma.BookingUpdateInput = {}) {
     return this.db.booking.update({ where: { id }, data: { status, ...extra } });
   }

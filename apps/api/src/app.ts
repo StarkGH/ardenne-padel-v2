@@ -63,6 +63,24 @@ import type { AccessProvider } from "./modules/access/access-provider.js";
 import { NotificationOutboxRepository } from "./modules/notifications/notification-outbox.repository.js";
 import { NotificationService } from "./modules/notifications/notification.service.js";
 import { createNotificationsRouter } from "./modules/notifications/notifications.routes.js";
+import { RefundService } from "./modules/payments/refund.service.js";
+import { AuditLogRepository } from "./modules/admin/audit-log.repository.js";
+import { AuditLogService } from "./modules/admin/audit-log.service.js";
+import { ClientNoteRepository } from "./modules/admin/client-note.repository.js";
+import { CrmRepository } from "./modules/admin/crm.repository.js";
+import { CrmService } from "./modules/admin/crm.service.js";
+import { createCrmRouter } from "./modules/admin/crm.routes.js";
+import { SchedulingAdminRepository } from "./modules/admin/scheduling-admin.repository.js";
+import { SchedulingAdminService } from "./modules/admin/scheduling-admin.service.js";
+import { createSchedulingAdminRouter } from "./modules/admin/scheduling-admin.routes.js";
+import { CreditPackAdminService } from "./modules/admin/credit-pack-admin.service.js";
+import { createCreditPackAdminRouter } from "./modules/admin/credit-pack-admin.routes.js";
+import { BookingsAdminService } from "./modules/admin/bookings-admin.service.js";
+import { createBookingsAdminRouter } from "./modules/admin/bookings-admin.routes.js";
+import { PaymentsAdminService } from "./modules/admin/payments-admin.service.js";
+import { createPaymentsAdminRouter } from "./modules/admin/payments-admin.routes.js";
+import { HealthIndicatorsService } from "./modules/admin/health-indicators.service.js";
+import { createHealthIndicatorsRouter } from "./modules/admin/health-indicators.routes.js";
 
 export interface AppDependencies {
   prisma: PrismaClient;
@@ -208,6 +226,23 @@ export function createApp({
   app.use("/api/v1", createTerminalRouter(kioskDeviceService, terminal, terminalDeviceRepository, config));
   app.use("/api/v1", createAccessRouter(bookingsService, accessGrantService));
   app.use("/api/v1", createNotificationsRouter(notificationService));
+
+  // --- Lot 9 — Back-office ---
+  const auditLogService = new AuditLogService(new AuditLogRepository(prisma));
+  const crmService = new CrmService(new CrmRepository(prisma), walletRepository, new ClientNoteRepository(prisma), auditLogService, prisma);
+  const schedulingAdminService = new SchedulingAdminService(new SchedulingAdminRepository(prisma), auditLogService);
+  const creditPackAdminService = new CreditPackAdminService(creditPacksRepository, auditLogService);
+  const bookingsAdminService = new BookingsAdminService(bookingsRepository, legacy, config, accessGrantService, notificationService, auditLogService);
+  const refundService = new RefundService(paymentsRepository, payments, notificationService);
+  const paymentsAdminService = new PaymentsAdminService(refundService, auditLogService);
+  const healthIndicatorsService = new HealthIndicatorsService(prisma, config);
+
+  app.use("/api/v1", createCrmRouter(crmService));
+  app.use("/api/v1", createSchedulingAdminRouter(schedulingAdminService));
+  app.use("/api/v1", createCreditPackAdminRouter(creditPackAdminService));
+  app.use("/api/v1", createBookingsAdminRouter(bookingsAdminService));
+  app.use("/api/v1", createPaymentsAdminRouter(paymentsAdminService));
+  app.use("/api/v1", createHealthIndicatorsRouter(healthIndicatorsService));
 
   app.use(notFoundHandler);
   app.use(errorHandler);
