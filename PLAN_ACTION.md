@@ -103,6 +103,8 @@ Estimations données pour une petite équipe (1 à 2 développeurs full-stack + 
 
 ## Lot 4 — Payments online / FULL
 
+**Statut : développé et testé sans clé Stripe réelle (aucun compte Stripe pour Ardenne Padel à ce jour — confirmé explicitement) — validation live reportée, V-011 à V-017 restent ouverts.** Fait : interface `PaymentProvider` (CDC §21.1) + `StripePaymentProvider` (port SDK étroit, testable sans réseau), orchestration complète CDC §27.1 (autoriser -> créer Legacy -> capturer, avec void sur collision, MANUAL_REVIEW sur erreur ambiguë sans jamais voider aveuglément), webhook Stripe avec dédup stricte par `event_id`, remboursement total/partiel avec traçabilité (CDC §30.1), `UnconfiguredPaymentProvider` pour dégrader proprement (503) tant qu'aucune clé n'est configurée. `BookingsService.createBooking` s'arrête maintenant à `CHECKOUT_PENDING` ; `POST /payments/checkout` complète l'orchestration — reflète les deux endpoints du CDC §43. 39 tests dédiés paiement/orchestration (dont capture différée après 3D Secure via webhook, idempotence webhook). Vérifié manuellement : serveur démarre sans clé Stripe, réservation créée normalement, checkout échoue proprement en 503, webhook rejette une requête sans signature en 400. Restant : capture réelle du coût provider en conditions réelles, endpoints `/payments/setup` et gestion des moyens de paiement enregistrés (`GET/DELETE /me/payment-methods`), intégration du remboursement dans le flux d'annulation (§29.3).
+
 **Objectif.** Premier parcours de paiement réel : Stripe online, mode `FULL`.
 
 **Tâches :**

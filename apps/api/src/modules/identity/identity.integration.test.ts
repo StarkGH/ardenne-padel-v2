@@ -4,6 +4,7 @@ import type { Express } from "express";
 import { PrismaClient } from "@prisma/client";
 import { loadConfig, resetConfigCacheForTests } from "@ardenne/config";
 import { createApp } from "../../app.js";
+import { resetIntegrationTestData } from "../../testing/reset-db.js";
 import type { EmailSender } from "./email-sender.js";
 
 /**
@@ -42,11 +43,7 @@ describe("Identity — parcours complet (CDC §7.2, §43)", () => {
   });
 
   beforeEach(async () => {
-    await prisma.session.deleteMany();
-    await prisma.emailVerificationToken.deleteMany();
-    await prisma.passwordResetToken.deleteMany();
-    await prisma.loginAttempt.deleteMany();
-    await prisma.user.deleteMany();
+    await resetIntegrationTestData(prisma);
 
     emailSender = new CapturingEmailSender();
     const config = loadConfig();

@@ -40,6 +40,7 @@ model User {
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetToken[]
   bookingsOrganized       Booking[]
+  payments                Payment[]
 
   @@map("users")
 }
@@ -391,6 +392,7 @@ model Booking {
 
   participants         BookingParticipant[]
   legacyBookingMapping LegacyBookingMapping?
+  payments             Payment[]
 
   @@index([courtId, startAt, endAt])
   @@index([organizerUserId])
@@ -445,6 +447,109 @@ model Friendship {
   @@unique([requesterUserId, addresseeUserId])
   @@index([addresseeUserId])
   @@map("friendships")
+}
+
+// =====================================================================
+// Lot 4 — Payments online / FULL
+// =====================================================================
+
+enum PaymentChannel {
+  ONLINE
+  QR_HANDOFF
+  TERMINAL
+}
+
+enum PaymentPurpose {
+  BOOKING_FULL
+  BOOKING_SHARE
+  CREDIT_PACK_PURCHASE
+}
+
+/// Statut d'une transaction Payment individuelle — distinct de
+/// `Booking.paymentStatus` (état agrégé de la réservation, CDC §17).
+/// `AUTHORIZED` = autorisation carte posée, capture pas encore effectuée
+/// (CDC §27.1 : autoriser avant Doinsport, capturer après confirmation).
+enum PaymentTransactionStatus {
+  PENDING
+  REQUIRES_ACTION
+  AUTHORIZED
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
+/// CDC §45 (`payments`). `provider_fee_cents`/`provider_net_cents` restent
+/// nuls jusqu'à récupération asynchrone du coût réel (CDC §30.3) — jamais
+/// calculés depuis un tarif hardcodé.
+model Payment {
+  id                           String                   @id @default(uuid())
+  bookingId                    String?                  @map("booking_id")
+  booking                      Booking?                 @relation(fields: [bookingId], references: [id])
+  userId                       String                   @map("user_id")
+  user                         User                     @relation(fields: [userId], references: [id])
+  provider                     String                   @default("stripe")
+  providerPaymentId            String                   @unique @map("provider_payment_id")
+  paymentChannel               PaymentChannel           @default(ONLINE) @map("payment_channel")
+  paymentMethodType            String?                  @map("payment_method_type")
+  amountCents                  Int                      @map("amount_cents")
+  currency                     String                   @default("EUR")
+  status                       PaymentTransactionStatus @default(PENDING)
+  purpose                      PaymentPurpose
+  providerFeeCents             Int?                     @map("provider_fee_cents")
+  providerNetCents             Int?                     @map("provider_net_cents")
+  providerFeeCurrency          String?                  @map("provider_fee_currency")
+  providerBalanceTransactionId String?                  @map("provider_balance_transaction_id")
+  createdAt                    DateTime                 @default(now()) @map("created_at")
+  updatedAt                    DateTime                 @updatedAt @map("updated_at")
+
+  refunds Refund[]
+
+  @@index([bookingId])
+  @@index([userId])
+  @@map("payments")
+}
+
+enum RefundFundingSource {
+  WALLET
+  EXTERNAL
+}
+
+enum RefundStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+/// CDC §30.1 — traçabilité complète des remboursements.
+model Refund {
+  id               String              @id @default(uuid())
+  paymentId        String              @map("payment_id")
+  payment          Payment             @relation(fields: [paymentId], references: [id])
+  providerRefundId String?             @map("provider_refund_id")
+  amountCents      Int                 @map("amount_cents")
+  fundingSource    RefundFundingSource @default(EXTERNAL) @map("funding_source")
+  status           RefundStatus        @default(PENDING)
+  reason           String?
+  createdBy        String?             @map("created_by")
+  createdAt        DateTime            @default(now()) @map("created_at")
+
+  @@index([paymentId])
+  @@map("refunds")
+}
+
+/// CDC §44 — déduplication des webhooks Stripe par `event_id`. Traitement
+/// synchrone pour l'instant (pas de file de jobs avant le Lot 7/8) : documenté
+/// comme simplification temporaire dans ADR correspondant, pas un oubli.
+model WebhookEvent {
+  id          String    @id @default(uuid())
+  provider    String    @default("stripe")
+  eventId     String    @unique @map("event_id")
+  eventType   String    @map("event_type")
+  processedAt DateTime? @map("processed_at")
+  lastError   String?   @map("last_error")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@map("webhook_events")
 }
 
 /// Journal d'audit append-only minimal (CDC §58) — enrichi lot par lot avec

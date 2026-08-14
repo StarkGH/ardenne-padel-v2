@@ -4,12 +4,17 @@ import type { Express } from "express";
 import { PrismaClient } from "@prisma/client";
 import { loadConfig, resetConfigCacheForTests } from "@ardenne/config";
 import { createApp } from "../../app.js";
+import { resetIntegrationTestData } from "../../testing/reset-db.js";
 import { DevConsoleEmailSender } from "../identity/email-sender.js";
+import { FakePaymentProvider } from "../payments/testing/fake-payment-provider.js";
 
 /**
- * Parcours HTTP complet CDC §18/§91 (gate Lot 3) : disponibilités -> devis ->
- * authentification -> réservation confirmée -> annulation. `LEGACY_WRITE_ENABLED`
+ * Parcours HTTP complet CDC §18/§27/§91 : disponibilités -> devis ->
+ * authentification -> réservation (`CHECKOUT_PENDING`) -> checkout paiement
+ * (`POST /payments/checkout`) -> confirmée -> annulation. `LEGACY_WRITE_ENABLED`
  * reste à sa valeur par défaut (false) : aucun appel réseau vers Doinsport ici.
+ * Aucune clé Stripe requise : `FakePaymentProvider` injecté (pas encore de
+ * compte Stripe pour Ardenne Padel, voir docs/operations.md).
  */
 describe("Bookings — parcours HTTP complet (sans Legacy)", () => {
   let prisma: PrismaClient;
@@ -66,17 +71,20 @@ describe("Bookings — parcours HTTP complet (sans Legacy)", () => {
   });
 
   beforeEach(async () => {
-    await prisma.booking.deleteMany({ where: { courtId } });
-    await prisma.session.deleteMany();
-    await prisma.user.deleteMany();
+    await resetIntegrationTestData(prisma);
 
     const config = loadConfig();
     expect(config.LEGACY_WRITE_ENABLED).toBe(false); // garde-fou : ce test ne doit jamais toucher Doinsport
-    app = createApp({ prisma, config, emailSender: new DevConsoleEmailSender() });
+    app = createApp({
+      prisma,
+      config,
+      emailSender: new DevConsoleEmailSender(),
+      paymentProvider: new FakePaymentProvider(),
+    });
   });
 
   afterAll(async () => {
-    await prisma.booking.deleteMany({ where: { courtId } });
+    await resetIntegrationTestData(prisma);
     await prisma.tariffRule.deleteMany({ where: { courtId } });
     await prisma.durationRule.deleteMany({ where: { courtId } });
     await prisma.openingRule.deleteMany({ where: { courtId } });
@@ -140,10 +148,17 @@ describe("Bookings — parcours HTTP complet (sans Legacy)", () => {
       .set("Cookie", cookie)
       .send({ courtId, startAt: monday10am.toISOString(), durationMinutes: 60 });
     expect(createRes.status).toBe(201);
-    expect(createRes.body.data.status).toBe("CONFIRMED");
-    expect(createRes.body.data.paymentStatus).toBe("PAID");
+    expect(createRes.body.data.status).toBe("CHECKOUT_PENDING");
     expect(createRes.body.data.priceTotalCents).toBe(4800);
     const bookingId = createRes.body.data.id;
+
+    const checkoutRes = await request(app)
+      .post("/api/v1/payments/checkout")
+      .set("Cookie", cookie)
+      .send({ bookingId, paymentMethodId: "pm_card_visa" });
+    expect(checkoutRes.status).toBe(200);
+    expect(checkoutRes.body.data.requiresAction).toBe(false);
+    expect(checkoutRes.body.data.bookingStatus).toBe("CONFIRMED");
 
     const meRes = await request(app).get("/api/v1/me/bookings").set("Cookie", cookie);
     expect(meRes.status).toBe(200);

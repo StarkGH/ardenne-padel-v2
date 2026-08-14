@@ -7,7 +7,6 @@ import type { CourtsRepository } from "../courts/courts.repository.js";
 import type { PricingService } from "../pricing/pricing.service.js";
 import type { LegacyBookingProvider } from "../legacy-doinsport/types.js";
 import type { BookingsRepository } from "./bookings.repository.js";
-import type { PaymentGateway } from "./mock-payment-gateway.js";
 import { assertTransition } from "./booking-state-machine.js";
 
 export interface CreateBookingInput {
@@ -20,11 +19,12 @@ export interface CreateBookingInput {
 }
 
 /**
- * Orchestration de création de réservation (CDC §18, §27). Le Lot 3 couvre
- * le chemin `DRAFT -> CHECKOUT_PENDING -> (Legacy) -> PAYMENT_PENDING ->
- * CONFIRMED` avec un paiement **simulé** (voir `mock-payment-gateway.ts`) —
- * le vrai paiement Stripe arrive au Lot 4 sans changer cette orchestration
- * dans ses grandes lignes (CDC §27.3 pour le cas wallet, à brancher plus tard).
+ * Création de réservation (CDC §18) — s'arrête à `CHECKOUT_PENDING`. La
+ * suite de l'orchestration (autorisation Stripe, création Legacy, capture —
+ * CDC §27.1) est portée par `CheckoutService` (module `payments`, Lot 4) :
+ * c'est lui qui reçoit le moyen de paiement et fait avancer la réservation
+ * jusqu'à `CONFIRMED`. Cette séparation reflète les deux appels API du CDC
+ * (§43 : `POST /bookings` puis `POST /payments/checkout`).
  */
 export class BookingsService {
   constructor(
@@ -32,7 +32,6 @@ export class BookingsService {
     private readonly courtsRepo: CourtsRepository,
     private readonly pricing: PricingService,
     private readonly legacyProvider: LegacyBookingProvider,
-    private readonly paymentGateway: PaymentGateway,
     private readonly config: AppConfig,
   ) {}
 
@@ -66,101 +65,8 @@ export class BookingsService {
     assertTransition(booking.status, "CHECKOUT_PENDING");
     booking = await this.repo.updateStatus(booking.id, "CHECKOUT_PENDING");
 
-    if (this.config.LEGACY_WRITE_ENABLED) {
-      const correlationMarker = `APV2:${booking.id}`;
-      await this.repo.createLegacyMapping(booking.id, correlationMarker);
-
-      try {
-        await this.createInLegacy(booking.id, input.organizerUserId, court, startAt, endAt, input.durationMinutes, quote.priceTotalCents, correlationMarker);
-      } catch (err) {
-        if (err instanceof AppError && err.code === "BOOKING_SLOT_UNAVAILABLE") {
-          await this.repo.updateStatus(booking.id, "FAILED");
-          await this.repo.updateLegacyMapping(booking.id, { syncStatus: "FAILED", lastError: err.message });
-          throw err;
-        }
-        // Toute autre erreur Legacy : ne jamais confirmer sans garantie (CDC §48.1).
-        await this.repo.updateStatus(booking.id, "MANUAL_REVIEW");
-        await this.repo.updateLegacyMapping(booking.id, {
-          syncStatus: "CONFIRMATION_UNKNOWN",
-          lastError: err instanceof Error ? err.message : String(err),
-        });
-        logger.error({ event: "LegacyBookingCreationFailed", bookingId: booking.id, err }, "création Legacy en échec, MANUAL_REVIEW");
-        throw new AppError(ErrorCodes.VALIDATION_FAILED, "La réservation n'a pas pu être confirmée pour le moment.", 502);
-      }
-    } else {
-      // `LEGACY_WRITE_ENABLED=false` : aucune ligne de mapping créée, donc
-      // `booking.legacyBookingMapping` reste `null` (relation optionnelle) —
-      // pas besoin d'un statut "NOT_REQUIRED" dédié pour le représenter.
-      logger.warn(
-        { event: "LegacyWriteSkipped", bookingId: booking.id },
-        "LEGACY_WRITE_ENABLED=false : réservation créée côté V2 uniquement (dev/test)",
-      );
-    }
-
-    booking = await this.repo.updateStatus(booking.id, "PAYMENT_PENDING");
-
-    // CDC §91 Lot 3 : paiement simulé (Lot 4 branchera Stripe ici sans changer
-    // le reste de l'orchestration).
-    const payment = await this.paymentGateway.captureFullPayment({ bookingId: booking.id, amountCents: quote.priceTotalCents });
-    if (!payment.succeeded) {
-      booking = await this.repo.updateStatus(booking.id, "FAILED");
-      throw new AppError(ErrorCodes.VALIDATION_FAILED, "Le paiement n'a pas pu être validé. La réservation n'est pas confirmée.", 402);
-    }
-
-    booking = await this.repo.updateStatus(booking.id, "CONFIRMED", {
-      paymentStatus: "PAID",
-      confirmedAt: new Date(),
-    });
-
-    logger.info({ event: "BookingConfirmed", bookingId: booking.id }, "réservation confirmée");
+    logger.info({ event: "BookingCheckoutPending", bookingId: booking.id }, "réservation en attente de paiement");
     return booking;
-  }
-
-  private async createInLegacy(
-    bookingId: string,
-    organizerUserId: string,
-    court: Court,
-    startAt: DateTime,
-    endAt: DateTime,
-    durationMinutes: number,
-    v2PriceTotalCents: number,
-    correlationMarker: string,
-  ): Promise<void> {
-    const legacyClient = await this.repo.findLegacyClientLinkedToUser(organizerUserId);
-    if (!legacyClient) {
-      // Pas de lien Shadow Client -> pas d'hypothèse silencieuse (CDC §111) :
-      // MANUAL_REVIEW plutôt qu'une création Legacy avec un client inventé.
-      throw new Error(`Organisateur ${organizerUserId} non lié à un client Legacy (migration CDC §7.3 non complétée)`);
-    }
-
-    const legacyPrice = await this.legacyProvider.resolveLegacyPrice({
-      courtId: court.id,
-      startAt: startAt.toISO()!,
-      durationSeconds: durationMinutes * 60,
-    });
-
-    const diff = Math.abs((legacyPrice.pricePerParticipant ?? 0) * court.capacity - v2PriceTotalCents);
-    if (diff > this.config.LEGACY_PRICE_MISMATCH_TOLERANCE_CENTS) {
-      logger.warn(
-        { event: "PriceMismatch", bookingId, v2PriceTotalCents, legacyPriceTotalEstimate: (legacyPrice.pricePerParticipant ?? 0) * court.capacity, diffCents: diff },
-        "écart de prix V2/Legacy au-delà de la tolérance configurée (CDC §11.3)",
-      );
-    }
-
-    const legacyBooking = await this.legacyProvider.createBooking({
-      startAt: startAt.toISO()!,
-      endAt: endAt.toISO()!,
-      courtId: court.id,
-      timetableBlockPriceId: legacyPrice.timetableBlockPriceId,
-      legacyClientId: legacyClient.externalId,
-      correlationMarker,
-    });
-
-    await this.repo.updateLegacyMapping(bookingId, {
-      legacyBookingId: legacyBooking.id,
-      syncStatus: "CONFIRMED",
-      lastSyncAt: new Date(),
-    });
   }
 
   /** CDC §29.2 — annulation client dans le délai autorisé. */
