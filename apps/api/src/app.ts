@@ -33,6 +33,12 @@ import { StripePaymentProvider } from "./modules/payments/stripe-payment-provide
 import { UnconfiguredPaymentProvider } from "./modules/payments/unconfigured-payment-provider.js";
 import type { PaymentProvider } from "./modules/payments/types.js";
 import type { StripeClientPort } from "./modules/payments/stripe-client-port.js";
+import { WalletRepository } from "./modules/wallet/wallet.repository.js";
+import { WalletService } from "./modules/wallet/wallet.service.js";
+import { createWalletRouter } from "./modules/wallet/wallet.routes.js";
+import { CreditPacksRepository } from "./modules/credit-packs/credit-packs.repository.js";
+import { CreditPackService } from "./modules/credit-packs/credit-pack.service.js";
+import { createCreditPacksRouter } from "./modules/credit-packs/credit-packs.routes.js";
 
 export interface AppDependencies {
   prisma: PrismaClient;
@@ -60,17 +66,30 @@ export function createApp({ prisma, config, emailSender, legacyProvider, payment
   app.set("trust proxy", 1);
 
   const paymentsRepository = new PaymentsRepository(prisma);
+  const walletRepository = new WalletRepository(prisma);
+  const walletService = new WalletService(walletRepository);
   const legacy = legacyProvider ?? new LegacyDoinsportAdapter(config, new LegacyDoinsportRepository(prisma));
   const payments = paymentProvider ?? (config.STRIPE_SECRET_KEY ? new StripePaymentProvider(createRealStripeClient(config.STRIPE_SECRET_KEY)) : new UnconfiguredPaymentProvider());
   const courtsRepository = new CourtsRepository(prisma);
   const bookingsRepository = new BookingsRepository(prisma);
-  const checkoutService = new CheckoutService(bookingsRepository, courtsRepository, paymentsRepository, legacy, payments, config);
+  const checkoutService = new CheckoutService(
+    bookingsRepository,
+    courtsRepository,
+    paymentsRepository,
+    legacy,
+    payments,
+    walletService,
+    walletRepository,
+    config,
+  );
+  const creditPacksRepository = new CreditPacksRepository(prisma);
+  const creditPackService = new CreditPackService(creditPacksRepository, paymentsRepository, walletService, payments);
 
   // Le webhook Stripe exige le corps brut (signature HMAC) : monté avant
   // express.json(), sur son propre routeur, pour ne jamais passer par le
   // parseur JSON global (CDC §44).
   const stripe = stripeClient ?? createRealStripeClient(config.STRIPE_SECRET_KEY ?? "sk_test_not_configured");
-  app.use("/api/v1", createWebhookRouter(stripe, config, paymentsRepository, checkoutService));
+  app.use("/api/v1", createWebhookRouter(stripe, config, paymentsRepository, checkoutService, creditPackService));
 
   app.use(express.json());
   app.use(cookieParser());
@@ -92,6 +111,8 @@ export function createApp({ prisma, config, emailSender, legacyProvider, payment
   app.use("/api/v1", createPricingRouter(pricingService, courtsRepository));
   app.use("/api/v1", createBookingsRouter(bookingsService));
   app.use("/api/v1", createPaymentsRouter(checkoutService, paymentsRepository));
+  app.use("/api/v1", createWalletRouter(walletService, walletRepository));
+  app.use("/api/v1", createCreditPacksRouter(creditPackService, creditPacksRepository));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

@@ -15,6 +15,11 @@ export class PaymentsRepository {
     return this.db.payment.findUnique({ where: { providerPaymentId } });
   }
 
+  async findPurposeByProviderPaymentId(providerPaymentId: string) {
+    const payment = await this.db.payment.findUnique({ where: { providerPaymentId }, select: { purpose: true } });
+    return payment?.purpose ?? null;
+  }
+
   findPaymentById(id: string) {
     return this.db.payment.findUnique({ where: { id } });
   }

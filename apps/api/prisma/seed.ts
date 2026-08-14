@@ -155,11 +155,41 @@ async function main() {
     }
   }
 
+  // Packs de crédits de démonstration (CDC §28.2) — valeurs d'exemple, pas
+  // des tarifs commerciaux réels du club.
+  await prisma.creditPack.upsert({
+    where: { id: "00000000-0000-0000-0000-000000000101" },
+    update: {},
+    create: {
+      id: "00000000-0000-0000-0000-000000000101",
+      name: "100 € → 100 crédits",
+      purchaseAmountCents: 10000,
+      paidCreditsCents: 10000,
+      bonusCreditsCents: 0,
+      salesChannels: ["ONLINE", "TERMINAL"],
+      displayOrder: 1,
+    },
+  });
+  await prisma.creditPack.upsert({
+    where: { id: "00000000-0000-0000-0000-000000000102" },
+    update: {},
+    create: {
+      id: "00000000-0000-0000-0000-000000000102",
+      name: "250 € → 250 crédits + 20 € offerts",
+      purchaseAmountCents: 25000,
+      paidCreditsCents: 25000,
+      bonusCreditsCents: 2000,
+      salesChannels: ["ONLINE", "TERMINAL"],
+      displayOrder: 2,
+    },
+  });
+
   console.log("Seed terminé. Comptes dev (mot de passe: DevPassword123!) :");
   console.log("  - admin@dev.ardenne-padel.local (ADMIN)");
   console.log("  - joueur1@dev.ardenne-padel.local (CUSTOMER)");
   console.log("4 terrains + mapping Legacy créés (Padel 1-4).");
   console.log("Horaires 08:00-22:00, durées 60/90min, tarifs de démonstration créés pour chaque terrain.");
+  console.log("2 packs de crédits de démonstration créés.");
 }
 
 main()

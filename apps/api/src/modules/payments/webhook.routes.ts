@@ -4,6 +4,7 @@ import type { AppConfig } from "@ardenne/config";
 import type { StripeClientPort } from "./stripe-client-port.js";
 import type { PaymentsRepository } from "./payments.repository.js";
 import type { CheckoutService } from "./checkout.service.js";
+import type { CreditPackService } from "../credit-packs/credit-pack.service.js";
 
 /**
  * CDC §44 — endpoint dédié, signature vérifiée, dédup par `event_id`,
@@ -16,12 +17,17 @@ import type { CheckoutService } from "./checkout.service.js";
  * voir schema.prisma) — acceptable tant que le volume reste faible, à
  * déplacer vers pg-boss dès son introduction pour respecter pleinement
  * "répondre rapidement, déléguer le traitement lourd à un job" (CDC §44).
+ *
+ * Un même PaymentIntent peut appartenir à une réservation (`CheckoutService`)
+ * ou à un achat de pack de crédits (`CreditPackService`) — le dispatch se
+ * fait sur `payments.purpose`, jamais en devinant depuis la forme de l'event.
  */
 export function createWebhookRouter(
   stripeClient: StripeClientPort,
   config: AppConfig,
   paymentsRepo: PaymentsRepository,
   checkoutService: CheckoutService,
+  creditPackService: CreditPackService,
 ): Router {
   const router = Router();
 
@@ -51,12 +57,24 @@ export function createWebhookRouter(
     try {
       const paymentIntent = event.data.object as { id: string };
       switch (event.type) {
-        case "payment_intent.amount_capturable_updated":
-          await checkoutService.continueAfterAuthorizationConfirmed(paymentIntent.id);
+        case "payment_intent.amount_capturable_updated": {
+          const purpose = await paymentsRepo.findPurposeByProviderPaymentId(paymentIntent.id);
+          if (purpose === "CREDIT_PACK_PURCHASE") {
+            await creditPackService.continueAfterAuthorizationConfirmed(paymentIntent.id);
+          } else {
+            await checkoutService.continueAfterAuthorizationConfirmed(paymentIntent.id);
+          }
           break;
-        case "payment_intent.payment_failed":
-          await checkoutService.handlePaymentFailedViaWebhook(paymentIntent.id);
+        }
+        case "payment_intent.payment_failed": {
+          const purpose = await paymentsRepo.findPurposeByProviderPaymentId(paymentIntent.id);
+          if (purpose !== "CREDIT_PACK_PURCHASE") {
+            await checkoutService.handlePaymentFailedViaWebhook(paymentIntent.id);
+          }
+          // Les achats de pack échoués restent simplement PENDING/FAILED côté
+          // Payment (déjà tracé) — aucune réservation à faire échouer en retour.
           break;
+        }
         default:
           // Événement reçu mais non pertinent pour ce lot — accusé de
           // réception normal, pas une erreur (CDC §44 : répondre rapidement).

@@ -41,6 +41,8 @@ model User {
   passwordResetTokens     PasswordResetToken[]
   bookingsOrganized       Booking[]
   payments                Payment[]
+  walletAccount           WalletAccount?
+  creditPackPurchases     CreditPackPurchase[]
 
   @@map("users")
 }
@@ -502,7 +504,8 @@ model Payment {
   createdAt                    DateTime                 @default(now()) @map("created_at")
   updatedAt                    DateTime                 @updatedAt @map("updated_at")
 
-  refunds Refund[]
+  refunds            Refund[]
+  creditPackPurchase CreditPackPurchase?
 
   @@index([bookingId])
   @@index([userId])
@@ -550,6 +553,161 @@ model WebhookEvent {
   createdAt   DateTime  @default(now()) @map("created_at")
 
   @@map("webhook_events")
+}
+
+// =====================================================================
+// Lot 5 — Wallet / crédits prépayés
+// =====================================================================
+//
+// Principe : `wallet_transactions` est un ledger append-only, jamais un
+// solde recalculé par `balance += x` (CDC §111). `balance_total` se calcule
+// en sommant les transactions ; `balance_reserved` en sommant les holds
+// `ACTIVE` ; `balance_available = total - reserved` (CDC §28.6). Les
+// transactions HOLD_CREATED/HOLD_RELEASED/HOLD_CAPTURED sont une trace
+// d'audit — elles ne participent jamais au calcul de `balance_total` (sinon
+// double comptage avec le hold lui-même) : seul `wallet_holds.status=ACTIVE`
+// compte pour `balance_reserved`, et seule une vraie transaction de débit
+// (`DEBIT_BOOKING`, créée au moment de la capture d'un hold) réduit
+// `balance_total`.
+
+enum WalletAccountStatus {
+  ACTIVE
+  CLOSED
+}
+
+/// CDC §28.4 — un wallet par utilisateur, fermé à l'écosystème Ardenne Padel
+/// (pas de transfert, pas de retrait, pas de P2P — CDC §28.1).
+model WalletAccount {
+  id        String              @id @default(uuid())
+  userId    String              @unique @map("user_id")
+  user      User                @relation(fields: [userId], references: [id])
+  currency  String              @default("EUR")
+  status    WalletAccountStatus @default(ACTIVE)
+  createdAt DateTime            @default(now()) @map("created_at")
+
+  transactions WalletTransaction[]
+  holds        WalletHold[]
+
+  @@map("wallet_accounts")
+}
+
+enum WalletTransactionType {
+  CREDIT_PACK_PURCHASE
+  CREDIT_PACK_BONUS
+  CREDIT_ADMIN
+  DEBIT_BOOKING
+  REFUND_BOOKING
+  HOLD_CREATED
+  HOLD_RELEASED
+  HOLD_CAPTURED
+  ADJUSTMENT
+  BONUS_EXPIRY
+}
+
+enum WalletCreditOrigin {
+  PAID
+  BONUS
+  ADMIN_COMP
+}
+
+/// CDC §28.4-§28.5 — ledger append-only. `amountCents` signé (positif =
+/// crédit, négatif = débit). `creditOrigin` distingue payé/bonus/offert par
+/// admin — nécessaire pour restituer fidèlement la composition d'origine
+/// lors d'un remboursement (CDC §28.10) plutôt qu'un simple montant global.
+model WalletTransaction {
+  id                   String                @id @default(uuid())
+  walletAccountId      String                @map("wallet_account_id")
+  walletAccount        WalletAccount         @relation(fields: [walletAccountId], references: [id])
+  type                 WalletTransactionType
+  amountCents          Int                   @map("amount_cents")
+  creditOrigin         WalletCreditOrigin?   @map("credit_origin")
+  bookingId            String?               @map("booking_id")
+  creditPackPurchaseId String?               @map("credit_pack_purchase_id")
+  walletHoldId         String?               @map("wallet_hold_id")
+  reference            String?
+  createdBy            String?               @map("created_by")
+  metadata             Json?
+  createdAt            DateTime              @default(now()) @map("created_at")
+
+  @@index([walletAccountId])
+  @@index([bookingId])
+  @@index([creditPackPurchaseId])
+  @@map("wallet_transactions")
+}
+
+enum WalletHoldStatus {
+  ACTIVE
+  RELEASED
+  CAPTURED
+  EXPIRED
+}
+
+/// CDC §28.6 — crédits temporairement réservés comme garantie. Un hold
+/// capturé ou libéré ne peut jamais l'être deux fois (CDC §47.2.bis) — les
+/// services applicatifs doivent vérifier `status=ACTIVE` avant toute
+/// transition, jamais recalculer depuis l'historique seul.
+model WalletHold {
+  id              String           @id @default(uuid())
+  walletAccountId String           @map("wallet_account_id")
+  walletAccount   WalletAccount    @relation(fields: [walletAccountId], references: [id])
+  bookingId       String?          @map("booking_id")
+  amountCents     Int              @map("amount_cents")
+  status          WalletHoldStatus @default(ACTIVE)
+  expiresAt       DateTime?        @map("expires_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  capturedAt      DateTime?        @map("captured_at")
+  releasedAt      DateTime?        @map("released_at")
+
+  @@index([walletAccountId, status])
+  @@index([bookingId])
+  @@map("wallet_holds")
+}
+
+/// CDC §28.2 — packs configurables, aucun taux de bonus hardcodé.
+model CreditPack {
+  id                  String    @id @default(uuid())
+  name                String
+  purchaseAmountCents Int       @map("purchase_amount_cents")
+  paidCreditsCents    Int       @map("paid_credits_cents")
+  bonusCreditsCents   Int       @default(0) @map("bonus_credits_cents")
+  active              Boolean   @default(true)
+  salesChannels       String[]  @map("sales_channels")
+  validFrom           DateTime? @map("valid_from")
+  validUntil          DateTime? @map("valid_until")
+  displayOrder        Int       @map("display_order")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  purchases CreditPackPurchase[]
+
+  @@map("credit_packs")
+}
+
+enum CreditPackPurchaseStatus {
+  PENDING
+  PAID
+  CREDITED
+  FAILED
+}
+
+/// CDC §28.2-§28.4 — un achat ne crédite le wallet qu'une seule fois
+/// (garde-fou d'idempotence dans `CreditPackService`, pas seulement ici).
+model CreditPackPurchase {
+  id                  String                   @id @default(uuid())
+  creditPackId        String                   @map("credit_pack_id")
+  creditPack          CreditPack               @relation(fields: [creditPackId], references: [id])
+  userId              String                   @map("user_id")
+  user                User                     @relation(fields: [userId], references: [id])
+  paymentId           String?                  @unique @map("payment_id")
+  payment             Payment?                 @relation(fields: [paymentId], references: [id])
+  purchaseAmountCents Int                      @map("purchase_amount_cents")
+  paidCreditsCents    Int                      @map("paid_credits_cents")
+  bonusCreditsCents   Int                      @map("bonus_credits_cents")
+  status              CreditPackPurchaseStatus @default(PENDING)
+  createdAt           DateTime                 @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("credit_pack_purchases")
 }
 
 /// Journal d'audit append-only minimal (CDC §58) — enrichi lot par lot avec

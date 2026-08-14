@@ -10,10 +10,14 @@ import type { PrismaClient } from "@prisma/client";
  */
 export async function resetIntegrationTestData(prisma: PrismaClient): Promise<void> {
   await prisma.refund.deleteMany();
+  await prisma.creditPackPurchase.deleteMany(); // référence payment -> avant payment
   await prisma.payment.deleteMany();
   await prisma.legacyBookingMapping.deleteMany();
   await prisma.bookingParticipant.deleteMany();
   await prisma.booking.deleteMany();
+  await prisma.walletTransaction.deleteMany(); // référence walletAccount -> avant walletAccount
+  await prisma.walletHold.deleteMany();
+  await prisma.walletAccount.deleteMany();
   await prisma.loginAttempt.deleteMany();
   await prisma.passwordResetToken.deleteMany();
   await prisma.emailVerificationToken.deleteMany();

@@ -11,6 +11,8 @@ import { PricingService } from "../pricing/pricing.service.js";
 import { PaymentsRepository } from "./payments.repository.js";
 import { CheckoutService } from "./checkout.service.js";
 import { FakePaymentProvider } from "./testing/fake-payment-provider.js";
+import { WalletRepository } from "../wallet/wallet.repository.js";
+import { WalletService } from "../wallet/wallet.service.js";
 
 /**
  * Orchestration paiement + Legacy (CDC §27.1) — validée avec de faux
@@ -79,9 +81,20 @@ describe("CheckoutService — orchestration CDC §27.1", () => {
   function buildServices(cfg: AppConfig, legacy: FakeLegacyProvider, payment: FakePaymentProvider) {
     const bookingsRepo = new BookingsRepository(prisma);
     const courtsRepo = new CourtsRepository(prisma);
+    const walletRepo = new WalletRepository(prisma);
+    const walletService = new WalletService(walletRepo);
     const bookingsService = new BookingsService(bookingsRepo, courtsRepo, new PricingService(new PricingRepository(prisma)), legacy, cfg);
-    const checkoutService = new CheckoutService(bookingsRepo, courtsRepo, new PaymentsRepository(prisma), legacy, payment, cfg);
-    return { bookingsService, checkoutService, bookingsRepo };
+    const checkoutService = new CheckoutService(
+      bookingsRepo,
+      courtsRepo,
+      new PaymentsRepository(prisma),
+      legacy,
+      payment,
+      walletService,
+      walletRepo,
+      cfg,
+    );
+    return { bookingsService, checkoutService, bookingsRepo, walletService };
   }
 
   async function linkLegacyClient(userId: string, externalId: string) {
@@ -243,5 +256,99 @@ describe("CheckoutService — orchestration CDC §27.1", () => {
 
     const confirmedAtHistory = await prisma.payment.findUnique({ where: { providerPaymentId } });
     expect(confirmedAtHistory?.status).toBe("SUCCEEDED"); // pas de double capture, pas d'erreur
+  });
+
+  describe("paiement wallet (CDC §27.3, §28.7)", () => {
+    it("confirms with 100% wallet and never creates a Stripe transaction (CDC §28.8)", async () => {
+      const cfg = { ...config, LEGACY_WRITE_ENABLED: false };
+      const legacy = new FakeLegacyProvider();
+      const payment = new FakePaymentProvider();
+      const { bookingsService, checkoutService, walletService } = buildServices(cfg, legacy, payment);
+
+      const wallet = await walletService.ensureAccount(organizerUserId);
+      await walletService.creditFromPackPurchase({ walletAccountId: wallet.id, creditPackPurchaseId: "seed", paidCreditsCents: 10000, bonusCreditsCents: 0 });
+
+      const booking = await bookingsService.createBooking({ organizerUserId, courtId, startAt: futureMondayIso(9), durationMinutes: 60 });
+      const result = await checkoutService.checkout({ bookingId: booking.id, userId: organizerUserId, applyWalletCents: 10000 });
+
+      expect(result.requiresAction).toBe(false);
+      expect(result.walletAppliedCents).toBe(4800);
+      expect(result.bookingStatus).toBe("CONFIRMED");
+      expect(result.paymentId).toBeUndefined(); // aucune transaction Stripe créée
+
+      const balance = await walletService.getBalance(wallet.id);
+      expect(balance.totalCents).toBe(10000 - 4800);
+      expect(balance.reservedCents).toBe(0);
+    });
+
+    it("splits payment between wallet and card when the wallet balance is insufficient", async () => {
+      const cfg = { ...config, LEGACY_WRITE_ENABLED: false };
+      const legacy = new FakeLegacyProvider();
+      const payment = new FakePaymentProvider();
+      const { bookingsService, checkoutService, walletService } = buildServices(cfg, legacy, payment);
+
+      const wallet = await walletService.ensureAccount(organizerUserId);
+      await walletService.creditFromPackPurchase({ walletAccountId: wallet.id, creditPackPurchaseId: "seed", paidCreditsCents: 2000, bonusCreditsCents: 0 });
+
+      const booking = await bookingsService.createBooking({ organizerUserId, courtId, startAt: futureMondayIso(9), durationMinutes: 60 });
+      const result = await checkoutService.checkout({
+        bookingId: booking.id,
+        userId: organizerUserId,
+        applyWalletCents: 2000,
+        paymentMethodId: "pm_card_visa",
+      });
+
+      expect(result.walletAppliedCents).toBe(2000); // tout le disponible
+      expect(result.bookingStatus).toBe("CONFIRMED");
+      expect(result.paymentId).toBeDefined(); // le solde (2800) est passé par Stripe
+
+      const balance = await walletService.getBalance(wallet.id);
+      expect(balance.totalCents).toBe(0);
+
+      const payments = await prisma.payment.findMany({ where: { bookingId: booking.id } });
+      expect(payments[0]!.amountCents).toBe(2800); // 4800 - 2000
+      expect(payments[0]!.status).toBe("SUCCEEDED");
+    });
+
+    it("releases the wallet hold without spending credits on a Legacy collision", async () => {
+      const cfg = { ...config, LEGACY_WRITE_ENABLED: true };
+      await linkLegacyClient(organizerUserId, "legacy-client-wallet-collision");
+      const legacy = new FakeLegacyProvider();
+      legacy.createBookingResult = "COLLISION";
+      const payment = new FakePaymentProvider();
+      const { bookingsService, checkoutService, walletService } = buildServices(cfg, legacy, payment);
+
+      const wallet = await walletService.ensureAccount(organizerUserId);
+      await walletService.creditFromPackPurchase({ walletAccountId: wallet.id, creditPackPurchaseId: "seed", paidCreditsCents: 10000, bonusCreditsCents: 0 });
+
+      const booking = await bookingsService.createBooking({ organizerUserId, courtId, startAt: futureMondayIso(9), durationMinutes: 60 });
+      await expect(
+        checkoutService.checkout({ bookingId: booking.id, userId: organizerUserId, applyWalletCents: 10000 }),
+      ).rejects.toThrow();
+
+      const balance = await walletService.getBalance(wallet.id);
+      expect(balance.totalCents).toBe(10000); // rien dépensé
+      expect(balance.reservedCents).toBe(0); // hold libéré, pas capturé
+    });
+
+    it("requires a payment method when the wallet does not cover the full amount", async () => {
+      const cfg = { ...config, LEGACY_WRITE_ENABLED: false };
+      const legacy = new FakeLegacyProvider();
+      const payment = new FakePaymentProvider();
+      const { bookingsService, checkoutService, walletService } = buildServices(cfg, legacy, payment);
+
+      const wallet = await walletService.ensureAccount(organizerUserId);
+      await walletService.creditFromPackPurchase({ walletAccountId: wallet.id, creditPackPurchaseId: "seed", paidCreditsCents: 1000, bonusCreditsCents: 0 });
+
+      const booking = await bookingsService.createBooking({ organizerUserId, courtId, startAt: futureMondayIso(9), durationMinutes: 60 });
+      await expect(
+        checkoutService.checkout({ bookingId: booking.id, userId: organizerUserId, applyWalletCents: 1000 }),
+      ).rejects.toThrow();
+
+      // Le hold créé pour la tentative doit avoir été libéré, pas laissé en l'air.
+      const balance = await walletService.getBalance(wallet.id);
+      expect(balance.reservedCents).toBe(0);
+      expect(balance.totalCents).toBe(1000);
+    });
   });
 });

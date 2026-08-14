@@ -128,6 +128,8 @@ Estimations données pour une petite équipe (1 à 2 développeurs full-stack + 
 
 ## Lot 5 — Wallet / crédits prépayés
 
+**Statut : fait et testé (toujours sans clé Stripe réelle pour l'achat de packs — mêmes limites que le Lot 4).** Fait : `wallet_accounts`/`wallet_transactions` (ledger append-only, jamais `balance += x`) avec solde dérivé par agrégation, `wallet_holds` avec transitions atomiques anti-double-capture/libération (CDC §47.2.bis), `credit_packs`/`credit_pack_purchases` avec crédit idempotent garanti par transition d'état atomique, consommation bonus-first, remboursement proportionnel à la composition d'origine (§28.10). Paiement 100% wallet et paiement mixte wallet+carte unifiés dans `CheckoutService` (même orchestration Legacy que le Lot 4, symétrie hold wallet / autorisation Stripe). 25 tests dédiés, 95 au total. Vérifié manuellement : wallet auto-créé au premier accès, liste des packs, achat échoue proprement en 503 sans clé Stripe. ADR-0007 actée. Restant : reporting `prepaid_balance_liability`, politique d'expiration du bonus (dépend de l'infra de jobs, Lot 7/8), intégration automatique du remboursement wallet dans l'annulation de réservation (Lot 9), recharge via Terminal/QR (Lot 7), base de test isolée (constat documenté dans `docs/operations.md`, pas encore corrigé).
+
 **Objectif.** Wallet fermé avec ledger append-only, comme moyen de paiement de premier rang.
 
 **Tâches :**
