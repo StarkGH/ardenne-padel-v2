@@ -6,6 +6,8 @@ import type { AppConfig } from "@ardenne/config";
 import type { CourtsRepository } from "../courts/courts.repository.js";
 import type { PricingService } from "../pricing/pricing.service.js";
 import type { LegacyBookingProvider } from "../legacy-doinsport/types.js";
+import type { AccessGrantService } from "../access/access-grant.service.js";
+import type { NotificationService } from "../notifications/notification.service.js";
 import type { BookingsRepository } from "./bookings.repository.js";
 import { assertTransition } from "./booking-state-machine.js";
 
@@ -43,6 +45,8 @@ export class BookingsService {
     private readonly pricing: PricingService,
     private readonly legacyProvider: LegacyBookingProvider,
     private readonly config: AppConfig,
+    private readonly accessGrantService: AccessGrantService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async createBooking(input: CreateBookingInput) {
@@ -167,6 +171,19 @@ export class BookingsService {
 
     const canceled = await this.repo.updateStatus(booking.id, "CANCELED", { canceledAt: new Date() });
     logger.info({ event: "BookingCanceled", bookingId: booking.id }, "réservation annulée");
+
+    // CDC §36 (Automation) : révocation d'accès et notification, jamais bloquantes.
+    await this.accessGrantService.revokeForBooking(booking.id).catch((err) => {
+      logger.error({ event: "AccessGrantAutomationFailed", bookingId: booking.id, err }, "automatisme d'accès en échec");
+    });
+    await this.notificationService
+      .enqueue({
+        template: "BOOKING_CANCELED",
+        recipientUserId: canceled.organizerUserId,
+        payload: { bookingId: canceled.id, startAt: canceled.startAt.toISOString() },
+      })
+      .catch((err) => logger.error({ event: "NotificationEnqueueFailed", bookingId: booking.id, err }, "échec d'enqueue notification"));
+
     return canceled;
   }
 

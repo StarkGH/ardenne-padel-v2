@@ -7,6 +7,7 @@ import type { PaymentsRepository } from "../payments/payments.repository.js";
 import type { PaymentProvider } from "../payments/types.js";
 import type { WalletService } from "../wallet/wallet.service.js";
 import type { EmailSender } from "../identity/email-sender.js";
+import type { NotificationService } from "../notifications/notification.service.js";
 import type { BookingsRepository } from "./bookings.repository.js";
 import type { BookingGuaranteeService } from "./booking-guarantee.service.js";
 import type { BookingShareRepository } from "./booking-share.repository.js";
@@ -33,6 +34,7 @@ export class BookingShareService {
     private readonly guaranteeService: BookingGuaranteeService,
     private readonly emailSender: EmailSender,
     private readonly config: AppConfig,
+    private readonly notificationService: NotificationService,
   ) {}
 
   /** Crée toutes les parts (organisateur inclus, déjà payée) et invite les autres participants. */
@@ -189,6 +191,14 @@ export class BookingShareService {
 
     await this.guaranteeService.releaseForPaidShare(share.bookingId, share.totalAmountCents);
     logger.info({ event: "SplitServiceFeeApplied", shareId: share.id }, "part réglée");
+
+    await this.notificationService
+      .enqueue({
+        template: "PARTICIPANT_PAYMENT_CONFIRMED",
+        recipientUserId: input.payerUserId,
+        payload: { shareId: share.id, bookingId: share.bookingId, amountCents: share.totalAmountCents },
+      })
+      .catch((err) => logger.error({ event: "NotificationEnqueueFailed", shareId: share.id, err }, "échec d'enqueue notification"));
 
     return this.repo.findById(share.id);
   }

@@ -4,6 +4,7 @@ import { ensureStripeCustomer } from "../payments/ensure-stripe-customer.js";
 import type { PaymentsRepository } from "../payments/payments.repository.js";
 import type { PaymentIntentStatus, PaymentProvider } from "../payments/types.js";
 import type { WalletService } from "../wallet/wallet.service.js";
+import type { NotificationService } from "../notifications/notification.service.js";
 import type { CreditPacksRepository } from "./credit-packs.repository.js";
 
 export interface PurchaseInput {
@@ -47,6 +48,7 @@ export class CreditPackService {
     private readonly paymentsRepo: PaymentsRepository,
     private readonly walletService: WalletService,
     private readonly paymentProvider: PaymentProvider,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async listActive() {
@@ -144,5 +146,20 @@ export class CreditPackService {
       paidCreditsCents: purchase.paidCreditsCents,
       bonusCreditsCents: purchase.bonusCreditsCents,
     });
+
+    await this.notificationService
+      .enqueue({
+        template: "CREDIT_PACK_PURCHASE_CONFIRMED",
+        recipientUserId: purchase.userId,
+        payload: { purchaseId: purchase.id, paidCreditsCents: purchase.paidCreditsCents, bonusCreditsCents: purchase.bonusCreditsCents },
+      })
+      .catch((err) => logger.error({ event: "NotificationEnqueueFailed", purchaseId: purchase.id, err }, "échec d'enqueue notification"));
+    await this.notificationService
+      .enqueue({
+        template: "WALLET_CREDITED",
+        recipientUserId: purchase.userId,
+        payload: { walletAccountId: wallet.id, paidCreditsCents: purchase.paidCreditsCents, bonusCreditsCents: purchase.bonusCreditsCents },
+      })
+      .catch((err) => logger.error({ event: "NotificationEnqueueFailed", purchaseId: purchase.id, err }, "échec d'enqueue notification"));
   }
 }

@@ -2,6 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { loadConfig, resetConfigCacheForTests, type AppConfig } from "@ardenne/config";
 import { resetIntegrationTestData } from "../../testing/reset-db.js";
+import { buildTestNotificationService } from "../../testing/build-notification-service.js";
+import { buildTestAccessGrantService } from "../../testing/build-access-grant-service.js";
 import { FakeLegacyProvider } from "../legacy-doinsport/testing/fake-legacy-provider.js";
 import { BookingsRepository } from "../bookings/bookings.repository.js";
 import { BookingsService } from "../bookings/bookings.service.js";
@@ -30,6 +32,7 @@ class CapturingEmailSender implements EmailSender {
   async sendSplitInvitationEmail(_to: string, url: string): Promise<void> {
     this.shareUrls.push(url);
   }
+  async sendTemplatedEmail(): Promise<void> {}
 }
 
 function tokenFromUrl(url: string): string {
@@ -116,8 +119,26 @@ describe("SplitCheckoutService — orchestration CDC §26", () => {
     const guaranteeRepo = new BookingGuaranteeRepository(prisma);
     const guaranteeService = new BookingGuaranteeService(guaranteeRepo, walletService, payment);
     const shareRepo = new BookingShareRepository(prisma);
-    const shareService = new BookingShareService(shareRepo, bookingsRepo, paymentsRepo, walletService, payment, guaranteeService, emailSender, cfg);
-    const bookingsService = new BookingsService(bookingsRepo, courtsRepo, new PricingService(new PricingRepository(prisma)), legacy, cfg);
+    const shareService = new BookingShareService(
+      shareRepo,
+      bookingsRepo,
+      paymentsRepo,
+      walletService,
+      payment,
+      guaranteeService,
+      emailSender,
+      cfg,
+      buildTestNotificationService(prisma),
+    );
+    const bookingsService = new BookingsService(
+      bookingsRepo,
+      courtsRepo,
+      new PricingService(new PricingRepository(prisma)),
+      legacy,
+      cfg,
+      buildTestAccessGrantService(prisma, cfg),
+      buildTestNotificationService(prisma),
+    );
     const splitCheckoutService = new SplitCheckoutService(
       bookingsRepo,
       courtsRepo,
@@ -128,6 +149,8 @@ describe("SplitCheckoutService — orchestration CDC §26", () => {
       guaranteeService,
       shareService,
       cfg,
+      buildTestAccessGrantService(prisma, cfg),
+      buildTestNotificationService(prisma),
     );
     return { bookingsService, splitCheckoutService, shareService, guaranteeService, guaranteeRepo, walletService, bookingsRepo };
   }

@@ -1,4 +1,5 @@
 import { AppError, ErrorCodes, logger } from "@ardenne/shared";
+import type { NotificationService } from "../notifications/notification.service.js";
 import type { PaymentsRepository } from "./payments.repository.js";
 import type { PaymentProvider } from "./types.js";
 
@@ -21,6 +22,7 @@ export class RefundService {
   constructor(
     private readonly paymentsRepo: PaymentsRepository,
     private readonly paymentProvider: PaymentProvider,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async refund(input: RefundInput) {
@@ -57,6 +59,13 @@ export class RefundService {
       { event: "RefundIssued", paymentId: payment.id, refundId: refund.id, amountCents: input.amountCents },
       "remboursement émis",
     );
+    await this.notificationService
+      .enqueue({
+        template: "REFUND_ISSUED",
+        recipientUserId: payment.userId,
+        payload: { paymentId: payment.id, refundId: refund.id, amountCents: input.amountCents },
+      })
+      .catch((err) => logger.error({ event: "NotificationEnqueueFailed", refundId: refund.id, err }, "échec d'enqueue notification"));
     return refund;
   }
 }

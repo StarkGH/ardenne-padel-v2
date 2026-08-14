@@ -25,6 +25,7 @@ class CapturingEmailSender implements EmailSender {
   }
 
   async sendSplitInvitationEmail(): Promise<void> {}
+  async sendTemplatedEmail(): Promise<void> {}
 }
 
 function extractToken(url: string): string {

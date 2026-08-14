@@ -9,6 +9,8 @@ import { computeSplitShares } from "../bookings/split-calculator.js";
 import type { BookingGuaranteeService } from "../bookings/booking-guarantee.service.js";
 import type { BookingShareService } from "../bookings/booking-share.service.js";
 import type { WalletService } from "../wallet/wallet.service.js";
+import type { AccessGrantService } from "../access/access-grant.service.js";
+import type { NotificationService } from "../notifications/notification.service.js";
 import { ensureStripeCustomer } from "./ensure-stripe-customer.js";
 import type { PaymentsRepository } from "./payments.repository.js";
 import type { PaymentProvider } from "./types.js";
@@ -47,6 +49,8 @@ export class SplitCheckoutService {
     private readonly guaranteeService: BookingGuaranteeService,
     private readonly shareService: BookingShareService,
     private readonly config: AppConfig,
+    private readonly accessGrantService: AccessGrantService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async checkout(input: SplitCheckoutInput): Promise<SplitCheckoutResult> {
@@ -140,13 +144,14 @@ export class SplitCheckoutService {
     }
 
     // 3. Créer en Legacy (même séquence de sécurité que le FULL — CDC §27.1).
+    let legacyAccessCodes: Array<{ code?: string; playgroundName?: string }> | undefined;
     try {
       if (this.config.LEGACY_WRITE_ENABLED) {
         const correlationMarker = `APV2:${booking.id}`;
         if (!booking.legacyBookingMapping) {
           await this.bookingsRepo.createLegacyMapping(booking.id, correlationMarker);
         }
-        await createBookingInLegacy(this.bookingsRepo, this.legacyProvider, this.config, {
+        const legacyResult = await createBookingInLegacy(this.bookingsRepo, this.legacyProvider, this.config, {
           bookingId: booking.id,
           organizerUserId: booking.organizerUserId,
           court,
@@ -156,6 +161,7 @@ export class SplitCheckoutService {
           v2PriceTotalCents: organizerShare.totalAmountCents + guaranteedCents,
           correlationMarker,
         });
+        legacyAccessCodes = legacyResult.accessCodes;
       }
     } catch (err) {
       if (err instanceof AppError && err.code === "BOOKING_SLOT_UNAVAILABLE") {
@@ -198,6 +204,28 @@ export class SplitCheckoutService {
     });
 
     logger.info({ event: "BookingConfirmed", bookingId: booking.id, mode: "SPLIT" }, "réservation SPLIT confirmée");
+
+    await this.accessGrantService.provisionOrImportForBooking(confirmed, legacyAccessCodes).catch((err) => {
+      logger.error({ event: "AccessGrantAutomationFailed", bookingId: booking.id, err }, "automatisme d'accès en échec");
+    });
+    await this.notificationService
+      .enqueue({
+        template: "BOOKING_CONFIRMATION",
+        recipientUserId: confirmed.organizerUserId,
+        payload: { bookingId: confirmed.id, startAt: confirmed.startAt.toISOString(), mode: "SPLIT" },
+      })
+      .catch((err) => logger.error({ event: "NotificationEnqueueFailed", bookingId: booking.id, err }, "échec d'enqueue notification"));
+    const reminderAt = new Date(confirmed.startAt.getTime() - this.config.BOOKING_REMINDER_LEAD_MINUTES * 60_000);
+    if (reminderAt.getTime() > Date.now()) {
+      await this.notificationService
+        .enqueue({
+          template: "BOOKING_REMINDER",
+          recipientUserId: confirmed.organizerUserId,
+          payload: { bookingId: confirmed.id, startAt: confirmed.startAt.toISOString() },
+          scheduledFor: reminderAt,
+        })
+        .catch((err) => logger.error({ event: "NotificationEnqueueFailed", bookingId: booking.id, err }, "échec d'enqueue rappel"));
+    }
 
     return {
       bookingId: booking.id,

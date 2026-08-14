@@ -2,6 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { loadConfig, resetConfigCacheForTests, type AppConfig } from "@ardenne/config";
 import { resetIntegrationTestData } from "../../testing/reset-db.js";
+import { buildTestNotificationService } from "../../testing/build-notification-service.js";
+import { buildTestAccessGrantService } from "../../testing/build-access-grant-service.js";
 import { FakeLegacyProvider } from "../legacy-doinsport/testing/fake-legacy-provider.js";
 import { BookingsRepository } from "../bookings/bookings.repository.js";
 import { BookingsService } from "../bookings/bookings.service.js";
@@ -83,7 +85,15 @@ describe("CheckoutService — orchestration CDC §27.1", () => {
     const courtsRepo = new CourtsRepository(prisma);
     const walletRepo = new WalletRepository(prisma);
     const walletService = new WalletService(walletRepo);
-    const bookingsService = new BookingsService(bookingsRepo, courtsRepo, new PricingService(new PricingRepository(prisma)), legacy, cfg);
+    const bookingsService = new BookingsService(
+      bookingsRepo,
+      courtsRepo,
+      new PricingService(new PricingRepository(prisma)),
+      legacy,
+      cfg,
+      buildTestAccessGrantService(prisma, cfg),
+      buildTestNotificationService(prisma),
+    );
     const checkoutService = new CheckoutService(
       bookingsRepo,
       courtsRepo,
@@ -93,6 +103,8 @@ describe("CheckoutService — orchestration CDC §27.1", () => {
       walletService,
       walletRepo,
       cfg,
+      buildTestAccessGrantService(prisma, cfg),
+      buildTestNotificationService(prisma),
     );
     return { bookingsService, checkoutService, bookingsRepo, walletService };
   }

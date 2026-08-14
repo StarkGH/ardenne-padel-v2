@@ -9,6 +9,8 @@ import type { PrismaClient } from "@prisma/client";
  * `fileParallelism: false` dans vitest.config.ts).
  */
 export async function resetIntegrationTestData(prisma: PrismaClient): Promise<void> {
+  await prisma.notificationOutbox.deleteMany();
+  await prisma.accessGrant.deleteMany(); // référence booking -> avant booking
   await prisma.kioskCheckoutSession.deleteMany(); // référence kioskDevice -> avant kioskDevice
   await prisma.kioskDevice.deleteMany();
   await prisma.refund.deleteMany();

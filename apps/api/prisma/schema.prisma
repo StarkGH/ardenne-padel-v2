@@ -396,6 +396,7 @@ model Booking {
   payments             Payment[]
   shares               BookingShare[]
   guarantee            BookingGuarantee?
+  accessGrants         AccessGrant[]
 
   @@index([courtId, startAt, endAt])
   @@index([organizerUserId])
@@ -891,4 +892,95 @@ model AuditLog {
   @@index([actorUserId])
   @@index([targetType, targetId])
   @@map("audit_logs")
+}
+
+// =====================================================================
+// Lot 8 — Access / Notifications
+// =====================================================================
+
+enum AccessGrantOrigin {
+  V2_GENERATED
+  LEGACY_IMPORTED
+}
+
+enum AccessGrantStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+  EXPIRED
+  FAILED
+}
+
+/// CDC §34 — code d'accès `NNNN#` par réservation. `codeCiphertext`/`codeIv`
+/// protègent le code en base (jamais stocké en clair, CDC §34.4) : seul le
+/// service applicatif peut le déchiffrer pour l'afficher à l'organisateur ou
+/// le transmettre à un `AccessProvider` matériel. `origin` porte la
+/// coexistence Dual Run (CDC §35) : un grant `LEGACY_IMPORTED` provient d'un
+/// code déjà généré par Doinsport, jamais dupliqué par un grant V2 (§78).
+model AccessGrant {
+  id                String            @id @default(uuid())
+  bookingId         String            @map("booking_id")
+  booking           Booking           @relation(fields: [bookingId], references: [id])
+  codeCiphertext    String            @map("code_ciphertext")
+  codeIv            String            @map("code_iv")
+  origin            AccessGrantOrigin
+  scope             String
+  status            AccessGrantStatus @default(PENDING)
+  validFrom         DateTime          @map("valid_from")
+  validUntil        DateTime          @map("valid_until")
+  provisionedAt     DateTime?         @map("provisioned_at")
+  revokedAt         DateTime?         @map("revoked_at")
+  providerReference String?           @map("provider_reference")
+  createdAt         DateTime          @default(now()) @map("created_at")
+
+  @@index([bookingId])
+  @@index([scope, validFrom, validUntil])
+  @@map("access_grants")
+}
+
+enum NotificationTemplate {
+  EMAIL_VERIFICATION
+  MIGRATION_INVITATION
+  BOOKING_CONFIRMATION
+  PARTICIPANT_INVITATION
+  PARTICIPANT_PAYMENT_CONFIRMED
+  CREDIT_PACK_PURCHASE_CONFIRMED
+  WALLET_CREDITED
+  INSUFFICIENT_BALANCE_OR_GUARANTEE
+  BOOKING_REMINDER
+  BOOKING_CANCELED
+  REFUND_ISSUED
+  ORGANIZER_REGULARIZATION
+  REGULARIZATION_FAILED
+  SIGNIFICANT_ADMIN_CHANGE
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+/// CDC §37.3 — outbox durable : une notification est toujours persistée
+/// avant d'être envoyée, pour qu'un échec d'envoi (SMTP temporairement
+/// indisponible) ne puisse jamais annuler ou masquer la transaction métier
+/// qui l'a déclenchée. `recipientUserId` est résolu en e-mail au moment de
+/// l'envoi (pas à l'écriture) pour rester correct même si l'adresse change
+/// entre-temps ; `recipientEmail` sert aux destinataires sans compte
+/// (invités SPLIT par exemple).
+model NotificationOutbox {
+  id              String               @id @default(uuid())
+  template        NotificationTemplate
+  recipientUserId String?              @map("recipient_user_id")
+  recipientEmail  String?              @map("recipient_email")
+  payload         Json
+  status          NotificationStatus   @default(PENDING)
+  attempts        Int                  @default(0)
+  lastError       String?              @map("last_error")
+  scheduledFor    DateTime             @default(now()) @map("scheduled_for")
+  sentAt          DateTime?            @map("sent_at")
+  createdAt       DateTime             @default(now()) @map("created_at")
+
+  @@index([status, scheduledFor])
+  @@map("notification_outbox")
 }

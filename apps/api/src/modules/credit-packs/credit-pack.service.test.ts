@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { resetIntegrationTestData } from "../../testing/reset-db.js";
+import { buildTestNotificationService } from "../../testing/build-notification-service.js";
 import { PaymentsRepository } from "../payments/payments.repository.js";
 import { FakePaymentProvider } from "../payments/testing/fake-payment-provider.js";
 import { WalletRepository } from "../wallet/wallet.repository.js";
@@ -45,7 +46,7 @@ describe("CreditPackService", () => {
   });
 
   function buildService(payment: FakePaymentProvider) {
-    return new CreditPackService(new CreditPacksRepository(prisma), new PaymentsRepository(prisma), walletService, payment);
+    return new CreditPackService(new CreditPacksRepository(prisma), new PaymentsRepository(prisma), walletService, payment, buildTestNotificationService(prisma));
   }
 
   it("credits the wallet exactly once for a successful synchronous purchase", async () => {

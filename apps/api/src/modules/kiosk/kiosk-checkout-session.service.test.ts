@@ -3,6 +3,8 @@ import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { loadConfig, resetConfigCacheForTests } from "@ardenne/config";
 import { resetIntegrationTestData } from "../../testing/reset-db.js";
+import { buildTestNotificationService } from "../../testing/build-notification-service.js";
+import { buildTestAccessGrantService } from "../../testing/build-access-grant-service.js";
 import { CourtsRepository } from "../courts/courts.repository.js";
 import { PricingRepository } from "../pricing/pricing.repository.js";
 import { PricingService } from "../pricing/pricing.service.js";
@@ -85,7 +87,15 @@ describe("KioskCheckoutSessionService", () => {
     const legacy = new LegacyDoinsportAdapter(config, new LegacyDoinsportRepository(prisma));
     const bookingsRepo = new BookingsRepository(prisma);
     const pricing = new PricingService(new PricingRepository(prisma));
-    const bookingsService = new BookingsService(bookingsRepo, new CourtsRepository(prisma), pricing, legacy, config);
+    const bookingsService = new BookingsService(
+      bookingsRepo,
+      new CourtsRepository(prisma),
+      pricing,
+      legacy,
+      config,
+      buildTestAccessGrantService(prisma, config),
+      buildTestNotificationService(prisma),
+    );
     const sessionRepo = new KioskCheckoutSessionRepository(prisma);
     sessionService = new KioskCheckoutSessionService(sessionRepo, bookingsService, bookingsRepo, config);
 

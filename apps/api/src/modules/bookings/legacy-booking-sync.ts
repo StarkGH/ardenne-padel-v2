@@ -27,7 +27,7 @@ export async function createBookingInLegacy(
   legacyProvider: LegacyBookingProvider,
   config: AppConfig,
   input: CreateBookingInLegacyInput,
-): Promise<{ legacyBookingId: string }> {
+): Promise<{ legacyBookingId: string; accessCodes: Array<{ code?: string; playgroundName?: string }> }> {
   const legacyClient = await repo.findLegacyClientLinkedToUser(input.organizerUserId);
   if (!legacyClient) {
     throw new Error(`Organisateur ${input.organizerUserId} non lié à un client Legacy (migration CDC §7.3 non complétée)`);
@@ -68,5 +68,5 @@ export async function createBookingInLegacy(
     lastSyncAt: new Date(),
   });
 
-  return { legacyBookingId: legacyBooking.id };
+  return { legacyBookingId: legacyBooking.id, accessCodes: legacyBooking.accessCodes };
 }

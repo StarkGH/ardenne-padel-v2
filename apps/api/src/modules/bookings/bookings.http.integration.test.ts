@@ -116,6 +116,7 @@ describe("Bookings — parcours HTTP complet (sans Legacy)", () => {
         },
         sendPasswordResetEmail: async () => {},
         sendSplitInvitationEmail: async () => {},
+        sendTemplatedEmail: async () => {},
       },
     });
     await request(capturingApp).post("/api/v1/auth/register").send(credentials);

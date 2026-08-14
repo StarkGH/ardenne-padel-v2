@@ -8,6 +8,8 @@ import type { BookingsRepository } from "../bookings/bookings.repository.js";
 import { createBookingInLegacy } from "../bookings/legacy-booking-sync.js";
 import type { WalletService } from "../wallet/wallet.service.js";
 import type { WalletRepository } from "../wallet/wallet.repository.js";
+import type { AccessGrantService } from "../access/access-grant.service.js";
+import type { NotificationService } from "../notifications/notification.service.js";
 import { ensureStripeCustomer } from "./ensure-stripe-customer.js";
 import type { PaymentsRepository } from "./payments.repository.js";
 import type { PaymentIntentStatus, PaymentProvider } from "./types.js";
@@ -70,6 +72,8 @@ export class CheckoutService {
     private readonly walletService: WalletService,
     private readonly walletRepo: WalletRepository,
     private readonly config: AppConfig,
+    private readonly accessGrantService: AccessGrantService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async checkout(input: CheckoutInput): Promise<CheckoutResult> {
@@ -227,6 +231,8 @@ export class CheckoutService {
     const court = await this.courtsRepo.findById(booking.courtId);
     if (!court) throw new Error(`proceedAfterAuthorization: terrain ${booking.courtId} introuvable`);
 
+    let legacyAccessCodes: Array<{ code?: string; playgroundName?: string }> | undefined;
+
     if (this.config.LEGACY_WRITE_ENABLED) {
       const correlationMarker = `APV2:${booking.id}`;
       if (!booking.legacyBookingMapping) {
@@ -234,7 +240,7 @@ export class CheckoutService {
       }
 
       try {
-        await createBookingInLegacy(this.bookingsRepo, this.legacyProvider, this.config, {
+        const legacyResult = await createBookingInLegacy(this.bookingsRepo, this.legacyProvider, this.config, {
           bookingId: booking.id,
           organizerUserId: booking.organizerUserId,
           court,
@@ -244,6 +250,7 @@ export class CheckoutService {
           v2PriceTotalCents: booking.priceTotalCents,
           correlationMarker,
         });
+        legacyAccessCodes = legacyResult.accessCodes;
       } catch (err) {
         if (err instanceof AppError && err.code === "BOOKING_SLOT_UNAVAILABLE") {
           // CDC §27.1 : "Libérer/annuler autorisation" en cas de collision —
@@ -298,6 +305,31 @@ export class CheckoutService {
       confirmedAt: new Date(),
     });
     logger.info({ event: "BookingConfirmed", bookingId: booking.id }, "réservation confirmée (paiement capturé)");
+
+    // CDC §36 (Automation) : provisioning d'accès et notifications déclenchés
+    // en aval de la confirmation — jamais une condition de son succès.
+    await this.accessGrantService.provisionOrImportForBooking(confirmed, legacyAccessCodes).catch((err) => {
+      logger.error({ event: "AccessGrantAutomationFailed", bookingId: booking.id, err }, "automatisme d'accès en échec");
+    });
+    await this.notificationService
+      .enqueue({
+        template: "BOOKING_CONFIRMATION",
+        recipientUserId: confirmed.organizerUserId,
+        payload: { bookingId: confirmed.id, startAt: confirmed.startAt.toISOString(), priceTotalCents: confirmed.priceTotalCents },
+      })
+      .catch((err) => logger.error({ event: "NotificationEnqueueFailed", bookingId: booking.id, err }, "échec d'enqueue notification"));
+    const reminderAt = new Date(confirmed.startAt.getTime() - this.config.BOOKING_REMINDER_LEAD_MINUTES * 60_000);
+    if (reminderAt.getTime() > Date.now()) {
+      await this.notificationService
+        .enqueue({
+          template: "BOOKING_REMINDER",
+          recipientUserId: confirmed.organizerUserId,
+          payload: { bookingId: confirmed.id, startAt: confirmed.startAt.toISOString() },
+          scheduledFor: reminderAt,
+        })
+        .catch((err) => logger.error({ event: "NotificationEnqueueFailed", bookingId: booking.id, err }, "échec d'enqueue rappel"));
+    }
+
     return confirmed;
   }
 }

@@ -10,6 +10,14 @@ export interface EmailSender {
   sendPasswordResetEmail(to: string, resetUrl: string): Promise<void>;
   /** CDC §26, §38 — invitation à payer une part de réservation partagée. */
   sendSplitInvitationEmail(to: string, shareUrl: string): Promise<void>;
+  /**
+   * CDC §37.1, §98 — canal générique pour les templates dispatchés depuis
+   * `notification_outbox` (Lot 8). `template`/`payload` typés en `unknown`
+   * ici pour ne pas faire dépendre `identity/` du module `notifications/`
+   * (évite une dépendance circulaire) ; `NotificationDispatcher` est seul
+   * responsable de la cohérence des payloads par template.
+   */
+  sendTemplatedEmail(to: string, template: string, payload: Record<string, unknown>): Promise<void>;
 }
 
 export class DevConsoleEmailSender implements EmailSender {
@@ -26,5 +34,10 @@ export class DevConsoleEmailSender implements EmailSender {
   async sendSplitInvitationEmail(to: string, shareUrl: string): Promise<void> {
     // eslint-disable-next-line no-console
     console.log(`[dev-email] Invitation à payer une part de réservation pour ${to} : ${shareUrl}`);
+  }
+
+  async sendTemplatedEmail(to: string, template: string, payload: Record<string, unknown>): Promise<void> {
+    // eslint-disable-next-line no-console
+    console.log(`[dev-email] ${template} pour ${to} :`, payload);
   }
 }

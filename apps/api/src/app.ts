@@ -55,6 +55,14 @@ import { StripeTerminalProvider } from "./modules/payments/stripe-terminal-provi
 import { UnconfiguredTerminalProvider } from "./modules/payments/unconfigured-terminal-provider.js";
 import { createTerminalRouter } from "./modules/payments/terminal.routes.js";
 import type { TerminalProvider } from "./modules/payments/terminal-provider.js";
+import { AccessGrantRepository } from "./modules/access/access-grant.repository.js";
+import { AccessGrantService } from "./modules/access/access-grant.service.js";
+import { LocalAccessProvider } from "./modules/access/local-access-provider.js";
+import { createAccessRouter } from "./modules/access/access.routes.js";
+import type { AccessProvider } from "./modules/access/access-provider.js";
+import { NotificationOutboxRepository } from "./modules/notifications/notification-outbox.repository.js";
+import { NotificationService } from "./modules/notifications/notification.service.js";
+import { createNotificationsRouter } from "./modules/notifications/notifications.routes.js";
 
 export interface AppDependencies {
   prisma: PrismaClient;
@@ -71,6 +79,9 @@ export interface AppDependencies {
   /** Injectable pour les tests (fake) ; sinon `StripeTerminalProvider` réel si
    * `STRIPE_SECRET_KEY` est configuré, `UnconfiguredTerminalProvider` sinon. */
   terminalProvider?: TerminalProvider;
+  /** Injectable pour les tests (fake) ; sinon `LocalAccessProvider` (aucun
+   * vendeur de matériel de contrôle d'accès choisi — voir ADR-0016). */
+  accessProvider?: AccessProvider;
 }
 
 /**
@@ -78,11 +89,27 @@ export interface AppDependencies {
  * (plutôt que des singletons globaux) pour rester testable en intégration
  * avec une base de test dédiée (voir tests/).
  */
-export function createApp({ prisma, config, emailSender, legacyProvider, paymentProvider, stripeClient, terminalProvider }: AppDependencies): Express {
+export function createApp({
+  prisma,
+  config,
+  emailSender,
+  legacyProvider,
+  paymentProvider,
+  stripeClient,
+  terminalProvider,
+  accessProvider,
+}: AppDependencies): Express {
   const app = express();
 
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
+
+  const emailer = emailSender ?? new DevConsoleEmailSender();
+  const notificationOutboxRepository = new NotificationOutboxRepository(prisma);
+  const notificationService = new NotificationService(notificationOutboxRepository, emailer, prisma);
+  const accessGrantRepository = new AccessGrantRepository(prisma);
+  const accessProviderImpl = accessProvider ?? new LocalAccessProvider();
+  const accessGrantService = new AccessGrantService(accessGrantRepository, accessProviderImpl, config);
 
   const paymentsRepository = new PaymentsRepository(prisma);
   const walletRepository = new WalletRepository(prisma);
@@ -100,9 +127,10 @@ export function createApp({ prisma, config, emailSender, legacyProvider, payment
     walletService,
     walletRepository,
     config,
+    accessGrantService,
+    notificationService,
   );
 
-  const emailer = emailSender ?? new DevConsoleEmailSender();
   const guaranteeRepository = new BookingGuaranteeRepository(prisma);
   const guaranteeService = new BookingGuaranteeService(guaranteeRepository, walletService, payments);
   const shareRepository = new BookingShareRepository(prisma);
@@ -115,6 +143,7 @@ export function createApp({ prisma, config, emailSender, legacyProvider, payment
     guaranteeService,
     emailer,
     config,
+    notificationService,
   );
   const splitCheckoutService = new SplitCheckoutService(
     bookingsRepository,
@@ -126,10 +155,12 @@ export function createApp({ prisma, config, emailSender, legacyProvider, payment
     guaranteeService,
     shareService,
     config,
+    accessGrantService,
+    notificationService,
   );
 
   const creditPacksRepository = new CreditPacksRepository(prisma);
-  const creditPackService = new CreditPackService(creditPacksRepository, paymentsRepository, walletService, payments);
+  const creditPackService = new CreditPackService(creditPacksRepository, paymentsRepository, walletService, payments, notificationService);
 
   // Le webhook Stripe exige le corps brut (signature HMAC) : monté avant
   // express.json(), sur son propre routeur, pour ne jamais passer par le
@@ -148,7 +179,7 @@ export function createApp({ prisma, config, emailSender, legacyProvider, payment
 
   const availabilityService = new AvailabilityService(new AvailabilityRepository(prisma));
   const pricingService = new PricingService(new PricingRepository(prisma));
-  const bookingsService = new BookingsService(bookingsRepository, courtsRepository, pricingService, legacy, config);
+  const bookingsService = new BookingsService(bookingsRepository, courtsRepository, pricingService, legacy, config, accessGrantService, notificationService);
 
   app.use("/api/v1", createHealthRouter(prisma));
   app.use("/api/v1/auth", createIdentityRouter(identityService, config));
@@ -175,6 +206,8 @@ export function createApp({ prisma, config, emailSender, legacyProvider, payment
 
   app.use("/api/v1", createKioskRouter(kioskDeviceService, kioskCheckoutSessionService));
   app.use("/api/v1", createTerminalRouter(kioskDeviceService, terminal, terminalDeviceRepository, config));
+  app.use("/api/v1", createAccessRouter(bookingsService, accessGrantService));
+  app.use("/api/v1", createNotificationsRouter(notificationService));
 
   app.use(notFoundHandler);
   app.use(errorHandler);
