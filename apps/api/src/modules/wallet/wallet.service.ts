@@ -161,6 +161,37 @@ export class WalletService {
     });
   }
 
+  /**
+   * Libère une partie seulement d'un hold (CDC §26 : une part payée réduit
+   * la garantie sans la lever entièrement). Si le montant réduit épuise le
+   * hold, il passe `RELEASED` — sinon il reste `ACTIVE` avec un montant
+   * réduit. Idempotent par construction : appeler deux fois avec le même
+   * montant échouerait proprement la seconde fois (montant insuffisant),
+   * jamais une double libération silencieuse.
+   */
+  async releaseHoldPartially(holdId: string, amountCents: number): Promise<void> {
+    assertCents(amountCents, "amountCents");
+    const hold = await this.repo.findHoldById(holdId);
+    if (!hold) throw new AppError("NOT_FOUND", "Garantie wallet introuvable.", 404);
+    if (hold.status !== "ACTIVE") return; // déjà traité — idempotent
+
+    if (amountCents >= hold.amountCents) {
+      await this.releaseHold(holdId);
+      return;
+    }
+
+    const reduced = await this.repo.reduceHoldAmount(holdId, amountCents);
+    if (!reduced) return;
+
+    await this.repo.createTransaction({
+      walletAccount: { connect: { id: hold.walletAccountId } },
+      type: "HOLD_RELEASED",
+      amountCents,
+      bookingId: hold.bookingId,
+      walletHoldId: hold.id,
+    });
+  }
+
   /** Convertit un hold en débit réel — seul moment où les crédits sont réellement dépensés. */
   async captureHold(holdId: string): Promise<void> {
     const hold = await this.repo.findHoldById(holdId);

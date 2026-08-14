@@ -115,6 +115,7 @@ describe("Bookings — parcours HTTP complet (sans Legacy)", () => {
           capturedToken = new URL(url).searchParams.get("token")!;
         },
         sendPasswordResetEmail: async () => {},
+        sendSplitInvitationEmail: async () => {},
       },
     });
     await request(capturingApp).post("/api/v1/auth/register").send(credentials);

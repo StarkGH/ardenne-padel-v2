@@ -16,15 +16,25 @@ export interface CreateBookingInput {
   startAt: string;
   durationMinutes: number;
   source?: "WEB" | "PWA" | "ADMIN";
+  paymentMode?: "FULL" | "SPLIT";
+}
+
+export interface AddParticipantInput {
+  bookingId: string;
+  requestedByUserId: string;
+  displayName: string;
+  userId?: string;
+  legacyClientId?: string;
+  invitedEmail?: string;
 }
 
 /**
  * Création de réservation (CDC §18) — s'arrête à `CHECKOUT_PENDING`. La
  * suite de l'orchestration (autorisation Stripe, création Legacy, capture —
- * CDC §27.1) est portée par `CheckoutService` (module `payments`, Lot 4) :
- * c'est lui qui reçoit le moyen de paiement et fait avancer la réservation
- * jusqu'à `CONFIRMED`. Cette séparation reflète les deux appels API du CDC
- * (§43 : `POST /bookings` puis `POST /payments/checkout`).
+ * CDC §27.1) est portée par `CheckoutService`/`SplitCheckoutService` (module
+ * `payments`) : c'est eux qui reçoivent le moyen de paiement et font avancer
+ * la réservation jusqu'à `CONFIRMED`. Cette séparation reflète les appels
+ * API du CDC (§43 : `POST /bookings` puis `POST /payments/checkout`).
  */
 export class BookingsService {
   constructor(
@@ -44,6 +54,7 @@ export class BookingsService {
     const endAt = startAt.plus({ minutes: input.durationMinutes });
 
     const quote = await this.pricing.quote(court, startAt.toISO()!, input.durationMinutes);
+    const paymentMode = input.paymentMode ?? "FULL";
 
     let booking = await this.repo.create({
       id: randomUUID(),
@@ -53,8 +64,13 @@ export class BookingsService {
       endAt: endAt.toJSDate(),
       durationMinutes: input.durationMinutes,
       status: "DRAFT",
-      paymentMode: "FULL", // CDC §21.4 : FULL est le mode par défaut. SPLIT arrive au Lot 6.
+      paymentMode, // CDC §21.4 : FULL par défaut, SPLIT sur demande explicite.
       bookingBasePriceCents: quote.priceTotalCents,
+      // CDC §24.3 : le frais de service est déterminé au choix du SPLIT et
+      // snapshoté — un changement de config ultérieur n'affecte jamais une
+      // réservation déjà créée.
+      splitServiceFeeCents: paymentMode === "SPLIT" && this.config.SPLIT_SERVICE_FEE_ENABLED ? this.config.SPLIT_SERVICE_FEE_CENTS : null,
+      splitServiceFeeAllocation: paymentMode === "SPLIT" && this.config.SPLIT_SERVICE_FEE_ENABLED ? this.config.SPLIT_SERVICE_FEE_ALLOCATION : null,
       priceTotalCents: quote.priceTotalCents,
       currency: quote.currency,
       source: input.source ?? "WEB",
@@ -65,8 +81,51 @@ export class BookingsService {
     assertTransition(booking.status, "CHECKOUT_PENDING");
     booking = await this.repo.updateStatus(booking.id, "CHECKOUT_PENDING");
 
-    logger.info({ event: "BookingCheckoutPending", bookingId: booking.id }, "réservation en attente de paiement");
+    logger.info({ event: "BookingCheckoutPending", bookingId: booking.id, paymentMode }, "réservation en attente de paiement");
     return booking;
+  }
+
+  /** CDC §18.3 — ajout de participants avant paiement (nécessaire pour SPLIT dès le Lot 6, utile aussi en FULL). */
+  async addParticipant(input: AddParticipantInput) {
+    const booking = await this.repo.findById(input.bookingId);
+    if (!booking) throw new AppError(ErrorCodes.NOT_FOUND, "Réservation introuvable.", 404);
+    if (booking.organizerUserId !== input.requestedByUserId) {
+      throw new AppError(ErrorCodes.FORBIDDEN, "Seul l'organisateur peut gérer les participants.", 403);
+    }
+    if (!["DRAFT", "CHECKOUT_PENDING"].includes(booking.status)) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, "Les participants ne peuvent plus être modifiés pour cette réservation.", 409);
+    }
+
+    const court = await this.courtsRepo.findById(booking.courtId);
+    const active = booking.participants.filter((p) => p.status !== "REMOVED");
+    if (court && active.length + 1 >= court.capacity) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, "Le terrain est déjà complet.", 422);
+    }
+
+    return this.repo.addParticipant({
+      booking: { connect: { id: booking.id } },
+      userId: input.userId,
+      legacyClientId: input.legacyClientId,
+      invitedEmail: input.invitedEmail,
+      displayName: input.displayName,
+      role: "PLAYER",
+      status: "INVITED",
+    });
+  }
+
+  async removeParticipant(bookingId: string, requestedByUserId: string, participantId: string) {
+    const booking = await this.repo.findById(bookingId);
+    if (!booking) throw new AppError(ErrorCodes.NOT_FOUND, "Réservation introuvable.", 404);
+    if (booking.organizerUserId !== requestedByUserId) {
+      throw new AppError(ErrorCodes.FORBIDDEN, "Seul l'organisateur peut gérer les participants.", 403);
+    }
+    if (!["DRAFT", "CHECKOUT_PENDING"].includes(booking.status)) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, "Les participants ne peuvent plus être modifiés pour cette réservation.", 409);
+    }
+    const participant = booking.participants.find((p) => p.id === participantId);
+    if (!participant) throw new AppError(ErrorCodes.NOT_FOUND, "Participant introuvable.", 404);
+
+    await this.repo.removeParticipant(participantId);
   }
 
   /** CDC §29.2 — annulation client dans le délai autorisé. */

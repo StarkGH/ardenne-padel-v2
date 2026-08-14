@@ -2,16 +2,29 @@ import { Router } from "express";
 import { z } from "zod";
 import { AppError, ErrorCodes } from "@ardenne/shared";
 import { requireAuth } from "../../http/auth-middleware.js";
+import type { BookingsRepository } from "../bookings/bookings.repository.js";
 import type { CheckoutService } from "./checkout.service.js";
+import type { SplitCheckoutService } from "./split-checkout.service.js";
 import type { PaymentsRepository } from "./payments.repository.js";
+import { ensureStripeCustomer } from "./ensure-stripe-customer.js";
+import type { PaymentProvider } from "./types.js";
 
 const checkoutSchema = z.object({
   bookingId: z.string().uuid(),
-  paymentMethodId: z.string().min(1),
+  paymentMethodId: z.string().min(1).optional(),
+  applyWalletCents: z.coerce.number().int().nonnegative().optional(),
+  // Présence de ce champ = checkout SPLIT (CDC §26) plutôt que FULL (§27.1).
+  guaranteeType: z.enum(["CARD_OFF_SESSION", "WALLET_RESERVE"]).optional(),
 });
 
 /** CDC §43 — endpoints Payments. */
-export function createPaymentsRouter(checkoutService: CheckoutService, paymentsRepo: PaymentsRepository): Router {
+export function createPaymentsRouter(
+  checkoutService: CheckoutService,
+  splitCheckoutService: SplitCheckoutService,
+  bookingsRepo: BookingsRepository,
+  paymentsRepo: PaymentsRepository,
+  paymentProvider: PaymentProvider,
+): Router {
   const router = Router();
 
   router.post("/payments/checkout", requireAuth, async (req, res, next) => {
@@ -23,10 +36,32 @@ export function createPaymentsRouter(checkoutService: CheckoutService, paymentsR
         });
       }
 
+      const booking = await bookingsRepo.findById(parsed.data.bookingId);
+      if (!booking) throw new AppError(ErrorCodes.NOT_FOUND, "Réservation introuvable.", 404);
+
+      if (booking.paymentMode === "SPLIT") {
+        if (!parsed.data.paymentMethodId || !parsed.data.guaranteeType) {
+          throw new AppError(
+            ErrorCodes.VALIDATION_FAILED,
+            "paymentMethodId et guaranteeType sont requis pour un paiement partagé.",
+            422,
+          );
+        }
+        const result = await splitCheckoutService.checkout({
+          bookingId: parsed.data.bookingId,
+          userId: req.authUser!.id,
+          paymentMethodId: parsed.data.paymentMethodId,
+          guaranteeType: parsed.data.guaranteeType,
+        });
+        res.status(200).json({ data: result });
+        return;
+      }
+
       const result = await checkoutService.checkout({
         bookingId: parsed.data.bookingId,
         userId: req.authUser!.id,
         paymentMethodId: parsed.data.paymentMethodId,
+        applyWalletCents: parsed.data.applyWalletCents,
       });
       res.status(200).json({ data: result });
     } catch (err) {
@@ -41,6 +76,17 @@ export function createPaymentsRouter(checkoutService: CheckoutService, paymentsR
         throw new AppError(ErrorCodes.NOT_FOUND, "Paiement introuvable.", 404);
       }
       res.status(200).json({ data: { id: payment.id, status: payment.status } });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /** CDC §25.1 — obtenir un moyen de paiement réutilisable (garantie CARD_OFF_SESSION). */
+  router.post("/payments/setup", requireAuth, async (req, res, next) => {
+    try {
+      const customer = await ensureStripeCustomer(paymentsRepo, paymentProvider, req.authUser!.id);
+      const setup = await paymentProvider.createSetup({ customerId: customer.customerId });
+      res.status(200).json({ data: setup });
     } catch (err) {
       next(err);
     }

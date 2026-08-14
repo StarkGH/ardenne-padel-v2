@@ -89,6 +89,20 @@ export class WalletRepository {
     return result.count === 1;
   }
 
+  /**
+   * Réduit le montant réservé d'un hold encore actif (libération partielle —
+   * CDC §26, une part payée diminue la garantie sans tout libérer d'un
+   * coup). Décrément atomique et conditionnel : jamais de lecture-puis-
+   * écriture séparée, jamais de solde négatif.
+   */
+  async reduceHoldAmount(id: string, amountCents: number): Promise<boolean> {
+    const result = await this.db.walletHold.updateMany({
+      where: { id, status: "ACTIVE", amountCents: { gte: amountCents } },
+      data: { amountCents: { decrement: amountCents } },
+    });
+    return result.count === 1;
+  }
+
   /** Débits déjà appliqués pour une réservation, par origine — sert de base au remboursement (CDC §28.10). */
   async getDebitBreakdownForBooking(bookingId: string): Promise<Record<WalletCreditOrigin, number>> {
     const rows = await this.db.walletTransaction.groupBy({

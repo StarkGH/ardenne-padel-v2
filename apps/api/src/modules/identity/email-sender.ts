@@ -8,6 +8,8 @@
 export interface EmailSender {
   sendVerificationEmail(to: string, verificationUrl: string): Promise<void>;
   sendPasswordResetEmail(to: string, resetUrl: string): Promise<void>;
+  /** CDC §26, §38 — invitation à payer une part de réservation partagée. */
+  sendSplitInvitationEmail(to: string, shareUrl: string): Promise<void>;
 }
 
 export class DevConsoleEmailSender implements EmailSender {
@@ -19,5 +21,10 @@ export class DevConsoleEmailSender implements EmailSender {
   async sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
     // eslint-disable-next-line no-console
     console.log(`[dev-email] Réinitialisation mot de passe pour ${to} : ${resetUrl}`);
+  }
+
+  async sendSplitInvitationEmail(to: string, shareUrl: string): Promise<void> {
+    // eslint-disable-next-line no-console
+    console.log(`[dev-email] Invitation à payer une part de réservation pour ${to} : ${shareUrl}`);
   }
 }

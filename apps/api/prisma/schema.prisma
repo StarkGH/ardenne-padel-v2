@@ -384,7 +384,6 @@ model Booking {
   currency                  String                     @default("EUR")
   source                    BookingSource              @default(WEB)
   accessStatus              String?                    @map("access_status")
-  guaranteeType             String?                    @map("guarantee_type")
   cancellationDeadline      DateTime?                  @map("cancellation_deadline")
   tariffRuleId              String?                    @map("tariff_rule_id")
   createdAt                 DateTime                   @default(now()) @map("created_at")
@@ -395,6 +394,8 @@ model Booking {
   participants         BookingParticipant[]
   legacyBookingMapping LegacyBookingMapping?
   payments             Payment[]
+  shares               BookingShare[]
+  guarantee            BookingGuarantee?
 
   @@index([courtId, startAt, endAt])
   @@index([organizerUserId])
@@ -708,6 +709,86 @@ model CreditPackPurchase {
 
   @@index([userId])
   @@map("credit_pack_purchases")
+}
+
+// =====================================================================
+// Lot 6 — Paiement partagé (SPLIT)
+// =====================================================================
+
+enum BookingGuaranteeType {
+  CARD_OFF_SESSION
+  WALLET_RESERVE
+}
+
+enum BookingGuaranteeStatus {
+  ACTIVE
+  PARTIALLY_RELEASED
+  CONSUMED
+  RELEASED
+  FAILED
+}
+
+/// CDC §25.4 — un seul mécanisme de garantie actif par réservation SPLIT
+/// (§25.3 : jamais de combinaison carte + wallet dans le MVP).
+model BookingGuarantee {
+  id                       String                 @id @default(uuid())
+  bookingId                String                 @unique @map("booking_id")
+  booking                  Booking                @relation(fields: [bookingId], references: [id])
+  type                     BookingGuaranteeType
+  organizerUserId          String                 @map("organizer_user_id")
+  guaranteedAmountCents    Int                    @map("guaranteed_amount_cents")
+  remainingGuaranteedCents Int                    @map("remaining_guaranteed_cents")
+  walletHoldId             String?                @map("wallet_hold_id")
+  paymentMethodId          String?                @map("payment_method_id")
+  status                   BookingGuaranteeStatus @default(ACTIVE)
+  createdAt                DateTime               @default(now()) @map("created_at")
+  releasedAt               DateTime?              @map("released_at")
+
+  @@map("booking_guarantees")
+}
+
+enum BookingShareStatus {
+  OPEN
+  INVITED
+  PAYMENT_PENDING
+  PAID
+  COVERED_BY_ORGANIZER
+  CANCELED
+  REFUNDED
+}
+
+enum BookingShareFundingSource {
+  WALLET
+  EXTERNAL
+}
+
+/// CDC §26.1 — une part par participant. Le lien d'invitation devient
+/// inutilisable après paiement/annulation/expiration (CDC §26.2) : vérifié
+/// par `status` + `invitationExpiresAt`, jamais par simple suppression de ligne.
+model BookingShare {
+  id                    String                     @id @default(uuid())
+  bookingId             String                     @map("booking_id")
+  booking               Booking                    @relation(fields: [bookingId], references: [id])
+  participantUserId     String?                    @map("participant_user_id")
+  legacyClientId        String?                    @map("legacy_client_id")
+  invitedEmail          String?                    @map("invited_email")
+  baseAmountCents       Int                        @map("base_amount_cents")
+  serviceFeeAmountCents Int                        @default(0) @map("service_fee_amount_cents")
+  totalAmountCents      Int                        @map("total_amount_cents")
+  status                BookingShareStatus         @default(OPEN)
+  fundingSource         BookingShareFundingSource? @map("funding_source")
+  paidByUserId          String?                    @map("paid_by_user_id")
+  paymentId             String?                    @map("payment_id")
+  walletTransactionId   String?                    @map("wallet_transaction_id")
+  invitationTokenHash   String?                    @unique @map("invitation_token_hash")
+  invitationExpiresAt   DateTime?                  @map("invitation_expires_at")
+  dueAt                 DateTime?                  @map("due_at")
+  createdAt             DateTime                   @default(now()) @map("created_at")
+  paidAt                DateTime?                  @map("paid_at")
+
+  @@index([bookingId])
+  @@index([participantUserId])
+  @@map("booking_shares")
 }
 
 /// Journal d'audit append-only minimal (CDC §58) — enrichi lot par lot avec

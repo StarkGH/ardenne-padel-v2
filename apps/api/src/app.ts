@@ -24,8 +24,14 @@ import type { LegacyBookingProvider } from "./modules/legacy-doinsport/types.js"
 import { BookingsRepository } from "./modules/bookings/bookings.repository.js";
 import { BookingsService } from "./modules/bookings/bookings.service.js";
 import { createBookingsRouter } from "./modules/bookings/bookings.routes.js";
+import { BookingGuaranteeRepository } from "./modules/bookings/booking-guarantee.repository.js";
+import { BookingGuaranteeService } from "./modules/bookings/booking-guarantee.service.js";
+import { BookingShareRepository } from "./modules/bookings/booking-share.repository.js";
+import { BookingShareService } from "./modules/bookings/booking-share.service.js";
+import { createBookingSharesRouter } from "./modules/bookings/booking-shares.routes.js";
 import { PaymentsRepository } from "./modules/payments/payments.repository.js";
 import { CheckoutService } from "./modules/payments/checkout.service.js";
+import { SplitCheckoutService } from "./modules/payments/split-checkout.service.js";
 import { createPaymentsRouter } from "./modules/payments/payments.routes.js";
 import { createWebhookRouter } from "./modules/payments/webhook.routes.js";
 import { createRealStripeClient } from "./modules/payments/stripe-client.js";
@@ -82,6 +88,33 @@ export function createApp({ prisma, config, emailSender, legacyProvider, payment
     walletRepository,
     config,
   );
+
+  const emailer = emailSender ?? new DevConsoleEmailSender();
+  const guaranteeRepository = new BookingGuaranteeRepository(prisma);
+  const guaranteeService = new BookingGuaranteeService(guaranteeRepository, walletService, payments);
+  const shareRepository = new BookingShareRepository(prisma);
+  const shareService = new BookingShareService(
+    shareRepository,
+    bookingsRepository,
+    paymentsRepository,
+    walletService,
+    payments,
+    guaranteeService,
+    emailer,
+    config,
+  );
+  const splitCheckoutService = new SplitCheckoutService(
+    bookingsRepository,
+    courtsRepository,
+    paymentsRepository,
+    legacy,
+    payments,
+    walletService,
+    guaranteeService,
+    shareService,
+    config,
+  );
+
   const creditPacksRepository = new CreditPacksRepository(prisma);
   const creditPackService = new CreditPackService(creditPacksRepository, paymentsRepository, walletService, payments);
 
@@ -96,7 +129,7 @@ export function createApp({ prisma, config, emailSender, legacyProvider, payment
   app.use(requestContext);
 
   const identityRepository = new IdentityRepository(prisma);
-  const identityService = new IdentityService(identityRepository, config, emailSender ?? new DevConsoleEmailSender());
+  const identityService = new IdentityService(identityRepository, config, emailer);
 
   app.use(attachAuthUser(identityService));
 
@@ -110,7 +143,8 @@ export function createApp({ prisma, config, emailSender, legacyProvider, payment
   app.use("/api/v1", createAvailabilityRouter(availabilityService, courtsRepository));
   app.use("/api/v1", createPricingRouter(pricingService, courtsRepository));
   app.use("/api/v1", createBookingsRouter(bookingsService));
-  app.use("/api/v1", createPaymentsRouter(checkoutService, paymentsRepository));
+  app.use("/api/v1", createBookingSharesRouter(shareService));
+  app.use("/api/v1", createPaymentsRouter(checkoutService, splitCheckoutService, bookingsRepository, paymentsRepository, payments));
   app.use("/api/v1", createWalletRouter(walletService, walletRepository));
   app.use("/api/v1", createCreditPacksRouter(creditPackService, creditPacksRepository));
 

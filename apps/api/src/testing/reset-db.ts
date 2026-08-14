@@ -14,6 +14,8 @@ export async function resetIntegrationTestData(prisma: PrismaClient): Promise<vo
   await prisma.payment.deleteMany();
   await prisma.legacyBookingMapping.deleteMany();
   await prisma.bookingParticipant.deleteMany();
+  await prisma.bookingShare.deleteMany(); // référence booking -> avant booking
+  await prisma.bookingGuarantee.deleteMany(); // référence booking -> avant booking
   await prisma.booking.deleteMany();
   await prisma.walletTransaction.deleteMany(); // référence walletAccount -> avant walletAccount
   await prisma.walletHold.deleteMany();

@@ -152,6 +152,8 @@ Estimations données pour une petite équipe (1 à 2 développeurs full-stack + 
 
 ## Lot 6 — SPLIT (paiement partagé)
 
+**Statut : fait et testé (toujours sans clé Stripe réelle).** Fait : `booking_shares`/`booking_guarantees` (CDC §25-§26), calcul des parts déterministe (`split-calculator.ts`, bonus-first n'existe pas ici mais frais ORGANIZER/PRO_RATA géré, centimes résiduels jamais perdus), garantie carte off-session ou wallet réservée (un seul mécanisme actif, §25.3), invitations par lien à usage unique, paiement d'une part via wallet ou carte, libération proportionnelle de la garantie à mesure des paiements, régularisation (capture du solde de garantie) disponible mais pas encore déclenchée automatiquement. Endpoints participants (`POST/DELETE .../participants`) et `POST /payments/setup` ajoutés (comblent des manques du Lot 3/Lot 4). 15 nouveaux tests, 108 au total. **Un vrai bug d'intégrité financière trouvé et corrigé en route** : la libération partielle de garantie ne réduisait pas le hold wallet sous-jacent (`balance_reserved` restait faux) — voir ADR-0012. Vérifié manuellement : réservation SPLIT créée, participant ajouté, checkout échoue proprement en 503 sans clé Stripe, lien de part invalide renvoie 404. ADR-0012 et ADR-0013 actées. Restant : reprise 3DS pour la part organisateur (le FULL l'a, pas le SPLIT), déclenchement automatique de la régularisation (Lot 7/8), validation juridique du wording/TVA du frais de service (V-022/V-023, bloquant avant activation commerciale réelle, pas avant le développement).
+
 **Objectif.** Paiement par participant comme option secondaire, avec garantie organisateur et frais de service configurable.
 
 **Tâches :**

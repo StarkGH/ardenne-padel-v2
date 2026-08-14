@@ -38,4 +38,12 @@ export class BookingsRepository {
   findLegacyClientLinkedToUser(userId: string) {
     return this.db.legacyClient.findFirst({ where: { linkedUserId: userId } });
   }
+
+  addParticipant(data: Prisma.BookingParticipantCreateInput) {
+    return this.db.bookingParticipant.create({ data });
+  }
+
+  removeParticipant(id: string) {
+    return this.db.bookingParticipant.update({ where: { id }, data: { status: "REMOVED" } });
+  }
 }

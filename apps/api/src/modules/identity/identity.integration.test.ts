@@ -23,6 +23,8 @@ class CapturingEmailSender implements EmailSender {
   async sendPasswordResetEmail(_to: string, url: string): Promise<void> {
     this.resetUrls.push(url);
   }
+
+  async sendSplitInvitationEmail(): Promise<void> {}
 }
 
 function extractToken(url: string): string {

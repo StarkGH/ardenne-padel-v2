@@ -48,6 +48,7 @@ const envSchema = z.object({
   // facturé reste toujours celui de V2 — ceci ne fait que déclencher une
   // alerte en cas d'écart suspect, jamais une correction silencieuse.
   LEGACY_PRICE_MISMATCH_TOLERANCE_CENTS: z.coerce.number().int().nonnegative().default(50),
+  SPLIT_INVITATION_TTL_HOURS: z.coerce.number().int().positive().default(72),
 
   // --- Stripe / paiement ---
   STRIPE_SECRET_KEY: z.string().optional(),
