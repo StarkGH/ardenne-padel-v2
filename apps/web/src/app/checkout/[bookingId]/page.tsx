@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/datetime";
 import { Button, Card, ErrorBanner, InfoBanner, PriceTag, Spinner } from "@/components/ui";
-import type { Booking, CheckoutResult, GuaranteeType, SplitCheckoutResult, SplitPreview } from "@/lib/types";
+import type { Booking, CheckoutResult, GuaranteeType, SplitCheckoutResult, SplitPreview, WalletBalance } from "@/lib/types";
 
 // CDC §54 écrans 8-11 — mode de paiement, moyen de paiement, paiement, confirmation.
 export default function CheckoutPage({ params }: { params: Promise<{ bookingId: string }> }) {
@@ -38,11 +38,25 @@ export default function CheckoutPage({ params }: { params: Promise<{ bookingId: 
   return booking.paymentMode === "SPLIT" ? <SplitCheckout booking={booking} /> : <FullCheckout booking={booking} />;
 }
 
+// CDC §54 écran 9, Annexe B "paiement mixte wallet + externe" — le wallet
+// s'applique d'abord, la carte ne couvre que le solde restant (CDC §28.7).
 function FullCheckout({ booking }: { booking: Booking }) {
   const router = useRouter();
+  const [wallet, setWallet] = useState<WalletBalance | null>(null);
+  const [useWallet, setUseWallet] = useState(false);
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [unconfigured, setUnconfigured] = useState(false);
+
+  useEffect(() => {
+    api
+      .get<WalletBalance>("/me/wallet")
+      .then(setWallet)
+      .catch(() => setWallet(null));
+  }, []);
+
+  const walletAppliedCents = useWallet && wallet ? Math.min(wallet.availableCents, booking.priceTotalCents) : 0;
+  const remainingCents = booking.priceTotalCents - walletAppliedCents;
 
   async function handlePay() {
     setPaying(true);
@@ -51,8 +65,13 @@ function FullCheckout({ booking }: { booking: Booking }) {
     try {
       // CDC §21.1 : pas d'intégration Stripe Elements réelle sans compte
       // Stripe (ADR-0010) — `paymentMethodId` est un identifiant de test, le
-      // reste du parcours est câblé contre l'API réelle.
-      const result = await api.post<CheckoutResult>("/payments/checkout", { bookingId: booking.id, paymentMethodId: "pm_card_visa" });
+      // reste du parcours est câblé contre l'API réelle. Envoyé même à 0 €
+      // restant : le backend l'ignore si le wallet couvre déjà tout (§28.8).
+      const result = await api.post<CheckoutResult>("/payments/checkout", {
+        bookingId: booking.id,
+        paymentMethodId: "pm_card_visa",
+        applyWalletCents: walletAppliedCents > 0 ? walletAppliedCents : undefined,
+      });
       if (result.bookingStatus === "CONFIRMED") {
         router.push(`/bookings/${booking.id}`);
       }
@@ -77,13 +96,45 @@ function FullCheckout({ booking }: { booking: Booking }) {
         </p>
       </Card>
 
-      <section>
-        <h2 className="mb-2 text-sm font-semibold text-slate-500">Moyen de paiement</h2>
-        <Card className="flex items-center gap-3">
-          <input type="radio" checked readOnly className="h-5 w-5 accent-emerald-600" />
-          <span className="text-base font-medium">Carte bancaire</span>
+      {wallet && wallet.availableCents > 0 && (
+        <Card className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium">Utiliser mon solde wallet</p>
+            <p className="text-xs text-slate-500">
+              Disponible : <PriceTag cents={wallet.availableCents} currency={wallet.currency} />
+            </p>
+          </div>
+          <input
+            type="checkbox"
+            checked={useWallet}
+            onChange={(e) => setUseWallet(e.target.checked)}
+            className="h-6 w-6 accent-emerald-600"
+          />
         </Card>
-      </section>
+      )}
+
+      {remainingCents > 0 && (
+        <section>
+          <h2 className="mb-2 text-sm font-semibold text-slate-500">Moyen de paiement</h2>
+          <Card className="flex items-center gap-3">
+            <input type="radio" checked readOnly className="h-5 w-5 accent-emerald-600" />
+            <span className="text-base font-medium">Carte bancaire</span>
+          </Card>
+        </section>
+      )}
+
+      {walletAppliedCents > 0 && (
+        <p className="text-sm text-slate-600">
+          <PriceTag cents={walletAppliedCents} currency={booking.currency} /> prélevés sur votre wallet
+          {remainingCents > 0 && (
+            <>
+              {" "}
+              — <PriceTag cents={remainingCents} currency={booking.currency} /> par carte
+            </>
+          )}
+          .
+        </p>
+      )}
 
       {unconfigured && (
         <InfoBanner message="Le paiement en ligne n'est pas encore configuré pour ce club (aucun compte Stripe actif pour l'instant). Cette page reste fonctionnelle et se connectera automatiquement dès qu'une clé Stripe sera configurée." />

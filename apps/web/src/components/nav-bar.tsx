@@ -20,6 +20,9 @@ export function NavBar() {
               <Link href="/bookings" className="text-slate-700 hover:text-emerald-700">
                 Mes réservations
               </Link>
+              <Link href="/wallet" className="text-slate-700 hover:text-emerald-700">
+                Wallet
+              </Link>
               <button
                 onClick={() => {
                   void logout().then(() => router.push("/"));

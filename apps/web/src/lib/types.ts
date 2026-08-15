@@ -135,3 +135,50 @@ export interface InvitationShare {
   totalAmountCents: number;
   status: BookingShareStatus;
 }
+
+export interface WalletBalance {
+  walletAccountId: string;
+  currency: string;
+  totalCents: number;
+  reservedCents: number;
+  availableCents: number;
+  byOrigin: { PAID: number; BONUS: number; ADMIN_COMP: number };
+}
+
+export type WalletTransactionType =
+  | "CREDIT_PACK_PURCHASE"
+  | "CREDIT_PACK_BONUS"
+  | "CREDIT_ADMIN"
+  | "DEBIT_BOOKING"
+  | "REFUND_BOOKING"
+  | "HOLD_CREATED"
+  | "HOLD_RELEASED"
+  | "HOLD_CAPTURED"
+  | "ADJUSTMENT"
+  | "BONUS_EXPIRY";
+
+export interface WalletTransaction {
+  id: string;
+  type: WalletTransactionType;
+  amountCents: number;
+  creditOrigin: "PAID" | "BONUS" | "ADMIN_COMP" | null;
+  bookingId: string | null;
+  creditPackPurchaseId: string | null;
+  reference: string | null;
+  createdAt: string;
+}
+
+export interface CreditPack {
+  id: string;
+  name: string;
+  purchaseAmountCents: number;
+  paidCreditsCents: number;
+  bonusCreditsCents: number;
+  displayOrder: number;
+}
+
+export interface CreditPackPurchaseResult {
+  purchaseId: string;
+  requiresAction: boolean;
+  clientSecret?: string;
+}
