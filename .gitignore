@@ -1,6 +1,9 @@
 .env
+.env*.local
 node_modules/
 dist/
 build/
 *.log
 .DS_Store
+.next/
+next-env.d.ts

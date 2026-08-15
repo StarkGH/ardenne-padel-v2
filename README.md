@@ -105,7 +105,16 @@ API disponible sur `http://localhost:3000/api/v1`. Vérifier avec `GET /api/v1/h
 
 Au Lot 1, il n'y a pas encore de vrai provider e-mail (arrive au Lot 8) : les liens de vérification/reset s'affichent dans la console du serveur (`[dev-email] ...`), jamais dans les logs structurés de production.
 
-### 7. Tests
+### 7. Lancer le frontend
+
+```bash
+cp apps/web/.env.example apps/web/.env.local   # NEXT_PUBLIC_API_BASE_URL
+npm run dev --workspace apps/web
+```
+
+PWA disponible sur `http://localhost:3001`. Nécessite l'API déjà lancée (étape 6) — `PUBLIC_BASE_URL` côté API doit correspondre à cette URL pour que CORS autorise le navigateur (`CORS_ALLOWED_ORIGINS`, par défaut = `PUBLIC_BASE_URL`).
+
+### 8. Tests
 
 ```bash
 npm test              # tous les workspaces
@@ -114,7 +123,7 @@ npm run build          # compilation TypeScript stricte (type-check complet)
 
 Les tests d'intégration du module identity tournent contre une vraie base PostgreSQL (celle de `DATABASE_URL`) — jamais de mock du domaine.
 
-### 8. Feature flags
+### 9. Feature flags
 
 Voir `.env.example` : chaque flag est documenté par domaine (Legacy/Dual Run, Stripe, Split, Wallet, Access). Tous démarrent désactivés par défaut — un module s'active explicitement quand son lot est prêt.
 
