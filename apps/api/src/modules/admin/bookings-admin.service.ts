@@ -35,7 +35,10 @@ export class BookingsAdminService {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, "Seule une réservation confirmée peut être annulée.", 409);
     }
 
-    await this.repo.updateStatus(booking.id, "CANCEL_PENDING");
+    const claimed = await this.repo.transitionStatus(booking.id, "CONFIRMED", "CANCEL_PENDING");
+    if (!claimed) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, "Cette réservation est déjà en cours d'annulation.", 409);
+    }
 
     if (booking.legacyBookingMapping?.legacyBookingId && this.config.LEGACY_WRITE_ENABLED) {
       try {

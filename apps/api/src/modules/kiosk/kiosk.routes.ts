@@ -80,7 +80,7 @@ export function createKioskRouter(deviceService: KioskDeviceService, sessionServ
       const session = await sessionService.getByToken(req.params.token!);
 
       if (req.authUser && session.status === "PENDING") {
-        const booking = await sessionService.claim(req.params.token!, req.authUser.id);
+        const booking = await sessionService.claim(req.params.token!, req.authUser.id, req.authUser.pilotUser);
         res.status(200).json({ data: { claimed: true, booking } });
         return;
       }

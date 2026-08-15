@@ -239,7 +239,10 @@ describe("CheckoutService — orchestration CDC §27.1", () => {
     expect(result.requiresAction).toBe(true);
     expect(result.clientSecret).toBeDefined();
     const midway = await prisma.booking.findUniqueOrThrow({ where: { id: booking.id } });
-    expect(midway.status).toBe("CHECKOUT_PENDING"); // pas encore avancé, en attente du client
+    // Réclamée atomiquement dès l'appel Stripe (CDC §67 — anti double-clic),
+    // pas seulement une fois le 3DS terminé : la réservation n'est donc plus
+    // CHECKOUT_PENDING même si elle n'est pas encore CONFIRMED.
+    expect(midway.status).toBe("PAYMENT_PENDING");
 
     const payments = await prisma.payment.findMany({ where: { bookingId: booking.id } });
     const providerPaymentId = payments[0]!.providerPaymentId;

@@ -7,6 +7,7 @@ import type { CrmService } from "./crm.service.js";
 const searchSchema = z.object({ q: z.string().min(1) });
 const addNoteSchema = z.object({ body: z.string().min(1).max(2000) });
 const changeRoleSchema = z.object({ role: z.enum(["CUSTOMER", "STAFF", "ADMIN", "SUPER_ADMIN"]), reason: z.string().max(500).optional() });
+const pilotCohortSchema = z.object({ enabled: z.boolean(), reason: z.string().max(500).optional() });
 
 /** CDC §40 — CRM client. Réservé au personnel du club (STAFF minimum). */
 export function createCrmRouter(service: CrmService): Router {
@@ -60,6 +61,21 @@ export function createCrmRouter(service: CrmService): Router {
         });
       }
       const result = await service.changeRole(req.authUser!.id, req.params.userId!, parsed.data.role, parsed.data.reason);
+      res.status(200).json({ data: result });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.patch("/admin/clients/:userId/pilot-cohort", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
+    try {
+      const parsed = pilotCohortSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError(ErrorCodes.VALIDATION_FAILED, "Paramètres invalides.", 422, {
+          issues: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })),
+        });
+      }
+      const result = await service.setPilotCohort(req.authUser!.id, req.params.userId!, parsed.data.enabled, parsed.data.reason);
       res.status(200).json({ data: result });
     } catch (err) {
       next(err);

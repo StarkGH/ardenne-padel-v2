@@ -42,6 +42,7 @@ export function createBookingsRouter(service: BookingsService): Router {
         durationMinutes: parsed.data.durationMinutes,
         paymentMode: parsed.data.paymentMode,
         source: "PWA",
+        organizerIsPilotUser: req.authUser!.pilotUser,
       });
       res.status(201).json({ data: booking });
     } catch (err) {

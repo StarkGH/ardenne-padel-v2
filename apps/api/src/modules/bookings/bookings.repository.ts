@@ -36,6 +36,18 @@ export class BookingsRepository {
     return this.db.booking.update({ where: { id }, data: { status, ...extra } });
   }
 
+  /**
+   * Transition atomique et conditionnelle — CDC §67 : deux tentatives de
+   * paiement concurrentes sur la même réservation (double clic) ne doivent
+   * produire qu'un seul effet. Contrairement à `updateStatus`, échoue
+   * silencieusement (retourne `false`) plutôt que d'écraser un état déjà
+   * modifié par une autre requête.
+   */
+  async transitionStatus(id: string, fromStatus: BookingStatus, toStatus: BookingStatus): Promise<boolean> {
+    const result = await this.db.booking.updateMany({ where: { id, status: fromStatus }, data: { status: toStatus } });
+    return result.count === 1;
+  }
+
   createLegacyMapping(bookingId: string, correlationMarker: string) {
     return this.db.legacyBookingMapping.create({ data: { bookingId, correlationMarker } });
   }

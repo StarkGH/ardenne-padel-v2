@@ -18,7 +18,7 @@ export function attachAuthUser(identityService: IdentityService) {
     }
     const user = await identityService.getUserFromSessionToken(token);
     if (user) {
-      req.authUser = { id: user.id, email: user.email, role: user.role, status: user.status };
+      req.authUser = { id: user.id, email: user.email, role: user.role, status: user.status, pilotUser: user.pilotUser };
     }
     next();
   };

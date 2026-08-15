@@ -26,6 +26,21 @@ export class BookingShareRepository {
     });
   }
 
+  /**
+   * Réclamation atomique avant tout débit/charge (CDC §67 : deux paiements
+   * concurrents de la même part ne doivent produire qu'un seul effet — sans
+   * cela, les deux requêtes pourraient débiter le wallet ou autoriser
+   * Stripe avant que `markPaidIfPayable` ne détecte la course, trop tard
+   * pour empêcher le double prélèvement).
+   */
+  async claimForPayment(id: string): Promise<boolean> {
+    const result = await this.db.bookingShare.updateMany({
+      where: { id, status: { in: ["OPEN", "INVITED"] } },
+      data: { status: "PAYMENT_PENDING" },
+    });
+    return result.count === 1;
+  }
+
   /** Transition atomique — une part ne peut être payée deux fois (CDC §26.2 : le lien devient inutilisable après paiement). */
   async markPaidIfPayable(id: string, data: Prisma.BookingShareUpdateInput): Promise<boolean> {
     const result = await this.db.bookingShare.updateMany({

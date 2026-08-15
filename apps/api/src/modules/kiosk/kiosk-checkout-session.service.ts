@@ -57,7 +57,7 @@ export class KioskCheckoutSessionService {
   }
 
   /** CDC §22.2 étape 5 : le smartphone reprend exactement le checkout en cours. */
-  async claim(rawToken: string, userId: string) {
+  async claim(rawToken: string, userId: string, organizerIsPilotUser = false) {
     const session = await this.getByToken(rawToken);
     if (session.status !== "PENDING") {
       throw new AppError("KIOSK_SESSION_ALREADY_CLAIMED", "Cette session a déjà été utilisée.", 409);
@@ -76,6 +76,7 @@ export class KioskCheckoutSessionService {
       durationMinutes: session.durationMinutes,
       paymentMode: session.paymentMode,
       source: "PWA",
+      organizerIsPilotUser,
     });
     await this.repo.setBookingId(session.id, booking.id);
 

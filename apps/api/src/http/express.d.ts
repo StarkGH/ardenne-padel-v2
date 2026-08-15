@@ -9,6 +9,7 @@ declare global {
         email: string;
         role: Role;
         status: UserStatus;
+        pilotUser: boolean;
       };
       kioskDevice?: {
         id: string;

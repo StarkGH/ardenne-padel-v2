@@ -102,4 +102,22 @@ export class CrmService {
     });
     return { id: after.id, role: after.role };
   }
+
+  /** CDC §100, Annexe B — inclusion/retrait d'un client de la cohorte pilote restreinte. */
+  async setPilotCohort(actorUserId: string, userId: string, enabled: boolean, reason?: string) {
+    const before = await this.db.user.findUnique({ where: { id: userId }, select: { pilotUser: true } });
+    if (!before) throw new AppError(ErrorCodes.NOT_FOUND, "Client introuvable.", 404);
+
+    const after = await this.db.user.update({ where: { id: userId }, data: { pilotUser: enabled } });
+    await this.auditLog.record({
+      actorUserId,
+      action: "PILOT_COHORT_CHANGED",
+      targetType: "User",
+      targetId: userId,
+      before: { pilotUser: before.pilotUser },
+      after: { pilotUser: after.pilotUser },
+      reason,
+    });
+    return { id: after.id, pilotUser: after.pilotUser };
+  }
 }

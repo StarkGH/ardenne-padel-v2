@@ -1,5 +1,8 @@
 import express, { type Express } from "express";
 import cookieParser from "cookie-parser";
+import helmet from "helmet";
+import cors from "cors";
+import rateLimit from "express-rate-limit";
 import type { PrismaClient } from "@prisma/client";
 import type { AppConfig } from "@ardenne/config";
 import { IdentityRepository } from "./modules/identity/identity.repository.js";
@@ -81,6 +84,8 @@ import { PaymentsAdminService } from "./modules/admin/payments-admin.service.js"
 import { createPaymentsAdminRouter } from "./modules/admin/payments-admin.routes.js";
 import { HealthIndicatorsService } from "./modules/admin/health-indicators.service.js";
 import { createHealthIndicatorsRouter } from "./modules/admin/health-indicators.routes.js";
+import { AlertsService } from "./modules/admin/alerts.service.js";
+import { createAlertsRouter } from "./modules/admin/alerts.routes.js";
 
 export interface AppDependencies {
   prisma: PrismaClient;
@@ -121,6 +126,39 @@ export function createApp({
 
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
+
+  // CDC §59.2 — security headers, CORS limité à une liste blanche explicite
+  // (jamais un `*` permissif), et rate limiting raisonnable. Appliqués tôt,
+  // avant toute route (y compris le webhook Stripe : ni helmet ni cors ne
+  // touchent au corps de la requête, donc aucun risque pour la vérification
+  // de signature HMAC qui suit sur `express.raw`).
+  app.use(helmet());
+  const allowedOrigins = config.CORS_ALLOWED_ORIGINS
+    ? config.CORS_ALLOWED_ORIGINS.split(",").map((o) => o.trim())
+    : [config.PUBLIC_BASE_URL];
+  app.use(
+    cors({
+      origin: allowedOrigins,
+      credentials: true,
+    }),
+  );
+  app.use(
+    rateLimit({
+      windowMs: config.RATE_LIMIT_WINDOW_MINUTES * 60_000,
+      limit: config.RATE_LIMIT_MAX_REQUESTS,
+      standardHeaders: true,
+      legacyHeaders: false,
+    }),
+  );
+  app.use(
+    "/api/v1/auth",
+    rateLimit({
+      windowMs: config.RATE_LIMIT_WINDOW_MINUTES * 60_000,
+      limit: config.RATE_LIMIT_AUTH_MAX_REQUESTS,
+      standardHeaders: true,
+      legacyHeaders: false,
+    }),
+  );
 
   const emailer = emailSender ?? new DevConsoleEmailSender();
   const notificationOutboxRepository = new NotificationOutboxRepository(prisma);
@@ -236,6 +274,7 @@ export function createApp({
   const refundService = new RefundService(paymentsRepository, payments, notificationService);
   const paymentsAdminService = new PaymentsAdminService(refundService, auditLogService);
   const healthIndicatorsService = new HealthIndicatorsService(prisma, config);
+  const alertsService = new AlertsService(prisma, config, healthIndicatorsService);
 
   app.use("/api/v1", createCrmRouter(crmService));
   app.use("/api/v1", createSchedulingAdminRouter(schedulingAdminService));
@@ -243,6 +282,7 @@ export function createApp({
   app.use("/api/v1", createBookingsAdminRouter(bookingsAdminService));
   app.use("/api/v1", createPaymentsAdminRouter(paymentsAdminService));
   app.use("/api/v1", createHealthIndicatorsRouter(healthIndicatorsService));
+  app.use("/api/v1", createAlertsRouter(alertsService));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

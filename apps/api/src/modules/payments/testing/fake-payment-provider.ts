@@ -27,6 +27,9 @@ export class FakePaymentProvider implements PaymentProvider {
   /** Statut renvoyé par `createPayment` — configurable par test. */
   authorizeResult: PaymentIntentStatus = "requires_capture";
   captureShouldFail = false;
+  /** CDC §68 — simule un timeout/panne réseau (rejet de la promesse), distinct d'un statut "failed" propre. */
+  createPaymentShouldThrow = false;
+  captureShouldThrow = false;
   voidCalls: string[] = [];
   refundCalls: RefundInput[] = [];
   lastCreatePaymentInput: CreatePaymentInput | null = null;
@@ -40,6 +43,9 @@ export class FakePaymentProvider implements PaymentProvider {
   }
 
   async createPayment(input: CreatePaymentInput): Promise<PaymentRef> {
+    if (this.createPaymentShouldThrow) {
+      throw new Error("Stripe indisponible (simulation de timeout réseau)");
+    }
     this.lastCreatePaymentInput = input;
     const providerPaymentId = `pi_fake_${randomUUID()}`;
     return {
@@ -51,6 +57,9 @@ export class FakePaymentProvider implements PaymentProvider {
   }
 
   async confirmOrCapture(input: ConfirmOrCaptureInput): Promise<PaymentRef> {
+    if (this.captureShouldThrow) {
+      throw new Error("Stripe indisponible pendant la capture (simulation de timeout réseau)");
+    }
     return { providerPaymentId: input.providerPaymentId, status: this.captureShouldFail ? "failed" : "succeeded" };
   }
 

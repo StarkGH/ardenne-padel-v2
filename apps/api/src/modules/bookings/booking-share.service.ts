@@ -124,53 +124,70 @@ export class BookingShareService {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, "Cette participation ne peut plus être payée.", 409);
     }
 
+    // CDC §67 : deux paiements concurrents de la même part — réclamation
+    // atomique avant tout débit/charge, pour qu'une seule requête puisse
+    // aller jusqu'au prélèvement (wallet ou Stripe).
+    const claimed = await this.repo.claimForPayment(share.id);
+    if (!claimed) {
+      throw new AppError("SHARE_ALREADY_PAID", "Cette participation a déjà été réglée.", 409);
+    }
+
     let paymentId: string | undefined;
     let walletTransactionRef: string | undefined;
 
-    if (input.fundingSource === "WALLET") {
-      const wallet = await this.walletService.ensureAccount(input.payerUserId);
-      await this.walletService.debitForBooking({
-        walletAccountId: wallet.id,
-        bookingId: share.bookingId,
-        amountCents: share.totalAmountCents,
-      });
-      walletTransactionRef = wallet.id;
-    } else {
-      if (!input.paymentMethodId) {
-        throw new AppError(ErrorCodes.VALIDATION_FAILED, "Un moyen de paiement est requis.", 422);
-      }
-      const customer = await ensureStripeCustomer(this.paymentsRepo, this.paymentProvider, input.payerUserId);
-      const authorized = await this.paymentProvider.createPayment({
-        customerId: customer.customerId,
-        amountCents: share.totalAmountCents,
-        currency: "EUR",
-        paymentMethodId: input.paymentMethodId,
-        idempotencyKey: `share:${share.id}`,
-      });
-      if (authorized.status === "failed") {
-        throw new AppError(ErrorCodes.VALIDATION_FAILED, "Le paiement n'a pas pu être validé.", 402);
-      }
-      const payment = await this.paymentsRepo.createPayment({
-        user: { connect: { id: input.payerUserId } },
-        booking: { connect: { id: share.bookingId } },
-        provider: "stripe",
-        providerPaymentId: authorized.providerPaymentId,
-        paymentChannel: "ONLINE",
-        paymentMethodType: authorized.paymentMethodType,
-        amountCents: share.totalAmountCents,
-        currency: "EUR",
-        status: authorized.status === "requires_capture" ? "AUTHORIZED" : "SUCCEEDED",
-        purpose: "BOOKING_SHARE",
-      });
-      if (authorized.status === "requires_capture") {
-        const captured = await this.paymentProvider.confirmOrCapture({ providerPaymentId: authorized.providerPaymentId });
-        if (captured.status !== "succeeded") {
-          await this.paymentsRepo.updatePaymentStatus(payment.id, { status: "FAILED" });
-          throw new AppError(ErrorCodes.VALIDATION_FAILED, "Le paiement n'a pas pu être capturé.", 402);
+    try {
+      if (input.fundingSource === "WALLET") {
+        const wallet = await this.walletService.ensureAccount(input.payerUserId);
+        await this.walletService.debitForBooking({
+          walletAccountId: wallet.id,
+          bookingId: share.bookingId,
+          amountCents: share.totalAmountCents,
+        });
+        walletTransactionRef = wallet.id;
+      } else {
+        if (!input.paymentMethodId) {
+          throw new AppError(ErrorCodes.VALIDATION_FAILED, "Un moyen de paiement est requis.", 422);
         }
-        await this.paymentsRepo.updatePaymentStatus(payment.id, { status: "SUCCEEDED" });
+        const customer = await ensureStripeCustomer(this.paymentsRepo, this.paymentProvider, input.payerUserId);
+        const authorized = await this.paymentProvider.createPayment({
+          customerId: customer.customerId,
+          amountCents: share.totalAmountCents,
+          currency: "EUR",
+          paymentMethodId: input.paymentMethodId,
+          idempotencyKey: `share:${share.id}`,
+        });
+        if (authorized.status === "failed") {
+          throw new AppError(ErrorCodes.VALIDATION_FAILED, "Le paiement n'a pas pu être validé.", 402);
+        }
+        const payment = await this.paymentsRepo.createPayment({
+          user: { connect: { id: input.payerUserId } },
+          booking: { connect: { id: share.bookingId } },
+          provider: "stripe",
+          providerPaymentId: authorized.providerPaymentId,
+          paymentChannel: "ONLINE",
+          paymentMethodType: authorized.paymentMethodType,
+          amountCents: share.totalAmountCents,
+          currency: "EUR",
+          status: authorized.status === "requires_capture" ? "AUTHORIZED" : "SUCCEEDED",
+          purpose: "BOOKING_SHARE",
+        });
+        if (authorized.status === "requires_capture") {
+          const captured = await this.paymentProvider.confirmOrCapture({ providerPaymentId: authorized.providerPaymentId });
+          if (captured.status !== "succeeded") {
+            await this.paymentsRepo.updatePaymentStatus(payment.id, { status: "FAILED" });
+            throw new AppError(ErrorCodes.VALIDATION_FAILED, "Le paiement n'a pas pu être capturé.", 402);
+          }
+          await this.paymentsRepo.updatePaymentStatus(payment.id, { status: "SUCCEEDED" });
+        }
+        paymentId = payment.id;
       }
-      paymentId = payment.id;
+    } catch (err) {
+      // Le débit/l'autorisation a échoué après réclamation atomique : la part
+      // redevient payable (aucun argent n'a effectivement changé de main du
+      // point de vue de ce participant) plutôt que de rester bloquée en
+      // PAYMENT_PENDING indéfiniment.
+      await this.repo.updateStatus(share.id, share.status);
+      throw err;
     }
 
     // Transition atomique : un lien d'invitation devient inutilisable après paiement (CDC §26.2).

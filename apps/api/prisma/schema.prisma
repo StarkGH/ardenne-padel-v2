@@ -32,6 +32,8 @@ model User {
   status           UserStatus @default(PENDING_VERIFICATION)
   role             Role       @default(CUSTOMER)
   stripeCustomerId String?    @map("stripe_customer_id")
+  /// CDC §100, Annexe B — cohorte pilote restreinte (`PILOT_MODE_ENABLED`).
+  pilotUser        Boolean    @default(false) @map("pilot_user")
   createdAt        DateTime   @default(now()) @map("created_at")
   updatedAt        DateTime   @updatedAt @map("updated_at")
   lastLoginAt      DateTime?  @map("last_login_at")

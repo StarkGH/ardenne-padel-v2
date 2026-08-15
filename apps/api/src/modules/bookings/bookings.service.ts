@@ -19,6 +19,8 @@ export interface CreateBookingInput {
   durationMinutes: number;
   source?: "WEB" | "PWA" | "ADMIN";
   paymentMode?: "FULL" | "SPLIT";
+  /** CDC §100, Annexe B — cohorte pilote (`PILOT_MODE_ENABLED`). Porté par l'appelant (déjà disponible via `req.authUser`) plutôt que relu ici, pour ne pas ajouter de dépendance base au seul besoin de ce garde-fou. */
+  organizerIsPilotUser?: boolean;
 }
 
 export interface AddParticipantInput {
@@ -50,6 +52,13 @@ export class BookingsService {
   ) {}
 
   async createBooking(input: CreateBookingInput) {
+    if (this.config.PILOT_MODE_ENABLED && !input.organizerIsPilotUser) {
+      throw new AppError(
+        "PILOT_COHORT_ONLY",
+        "Les réservations sont temporairement réservées à la cohorte pilote.",
+        403,
+      );
+    }
     const court = await this.requireCourt(input.courtId);
     const startAt = DateTime.fromISO(input.startAt, { setZone: true }).toUTC();
     if (!startAt.isValid) {
@@ -151,7 +160,13 @@ export class BookingsService {
     }
 
     assertTransition(booking.status, "CANCEL_PENDING");
-    await this.repo.updateStatus(booking.id, "CANCEL_PENDING");
+    // CDC §67 : deux annulations concurrentes sur la même réservation ne
+    // doivent produire qu'une seule transition effective (annulation Legacy,
+    // révocation d'accès et notification une seule fois, pas deux).
+    const claimed = await this.repo.transitionStatus(booking.id, "CONFIRMED", "CANCEL_PENDING");
+    if (!claimed) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, "Cette réservation est déjà en cours d'annulation.", 409);
+    }
 
     if (booking.legacyBookingMapping?.legacyBookingId && this.config.LEGACY_WRITE_ENABLED) {
       try {

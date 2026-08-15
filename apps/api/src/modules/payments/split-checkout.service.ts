@@ -64,12 +64,20 @@ export class SplitCheckoutService {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, "Cette réservation n'est pas en mode paiement partagé.", 409);
     }
 
+    // CDC §67 : double clic sur le checkout SPLIT — réclamation atomique
+    // avant tout appel Stripe, même logique que `CheckoutService` (FULL).
+    const claimed = await this.bookingsRepo.transitionStatus(booking.id, "CHECKOUT_PENDING", "PAYMENT_PENDING");
+    if (!claimed) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, "Cette réservation est déjà en cours de traitement.", 409);
+    }
+
     const court = await this.courtsRepo.findById(booking.courtId);
     if (!court) throw new Error(`SplitCheckoutService: terrain ${booking.courtId} introuvable`);
 
     const others = booking.participants.filter((p) => p.status !== "REMOVED");
     const participantCount = others.length + 1; // + organisateur
     if (participantCount < 2) {
+      await this.bookingsRepo.updateStatus(booking.id, "CHECKOUT_PENDING"); // réclamé plus haut, aucun effet externe encore produit
       throw new AppError(
         ErrorCodes.VALIDATION_FAILED,
         "Il faut au moins un autre participant pour un paiement partagé.",
@@ -77,6 +85,7 @@ export class SplitCheckoutService {
       );
     }
     if (participantCount > court.capacity) {
+      await this.bookingsRepo.updateStatus(booking.id, "CHECKOUT_PENDING");
       throw new AppError(ErrorCodes.VALIDATION_FAILED, "Le nombre de participants dépasse la capacité du terrain.", 422);
     }
 
@@ -91,20 +100,32 @@ export class SplitCheckoutService {
     const guaranteedCents = shares.slice(1).reduce((sum, s) => sum + s.totalAmountCents, 0);
 
     // 1. Payer immédiatement la part organisateur (+ frais si allocation ORGANIZER, CDC §26 étape 2).
-    const customer = await ensureStripeCustomer(this.paymentsRepo, this.paymentProvider, input.userId);
-    const authorized = await this.paymentProvider.createPayment({
-      customerId: customer.customerId,
-      amountCents: organizerShare.totalAmountCents,
-      currency: booking.currency,
-      paymentMethodId: input.paymentMethodId,
-      idempotencyKey: `split-organizer:${booking.id}`,
-    });
+    let authorized: Awaited<ReturnType<PaymentProvider["createPayment"]>>;
+    try {
+      const customer = await ensureStripeCustomer(this.paymentsRepo, this.paymentProvider, input.userId);
+      authorized = await this.paymentProvider.createPayment({
+        customerId: customer.customerId,
+        amountCents: organizerShare.totalAmountCents,
+        currency: booking.currency,
+        paymentMethodId: input.paymentMethodId,
+        idempotencyKey: `split-organizer:${booking.id}`,
+      });
+    } catch (err) {
+      // CDC §68 : filet de sécurité pour une exception non anticipée (timeout
+      // Stripe...) avant toute autorisation connue — transition
+      // conditionnelle, réservation reclaimable.
+      await this.bookingsRepo.transitionStatus(booking.id, "PAYMENT_PENDING", "CHECKOUT_PENDING");
+      throw err;
+    }
     if (authorized.status === "failed") {
+      await this.bookingsRepo.updateStatus(booking.id, "CHECKOUT_PENDING");
       throw new AppError(ErrorCodes.VALIDATION_FAILED, "Le paiement de votre part n'a pas pu être validé.", 402);
     }
     if (authorized.status === "requires_action") {
       // CDC §26 suppose un parcours synchrone pour l'organisateur (contrairement
       // au FULL, pas de reprise webhook ici au Lot 6 — limitation documentée).
+      await this.paymentProvider.voidAuthorization({ providerPaymentId: authorized.providerPaymentId }).catch(() => undefined);
+      await this.bookingsRepo.updateStatus(booking.id, "CHECKOUT_PENDING");
       throw new AppError(
         "3DS_REQUIRED_UNSUPPORTED_FOR_SPLIT",
         "Ce moyen de paiement nécessite une authentification supplémentaire, non prise en charge pour le paiement partagé pour l'instant.",
@@ -112,18 +133,27 @@ export class SplitCheckoutService {
       );
     }
 
-    const organizerPayment = await this.paymentsRepo.createPayment({
-      booking: { connect: { id: booking.id } },
-      user: { connect: { id: input.userId } },
-      provider: "stripe",
-      providerPaymentId: authorized.providerPaymentId,
-      paymentChannel: "ONLINE",
-      paymentMethodType: authorized.paymentMethodType,
-      amountCents: organizerShare.totalAmountCents,
-      currency: booking.currency,
-      status: "AUTHORIZED",
-      purpose: "BOOKING_FULL",
-    });
+    let organizerPayment: Awaited<ReturnType<PaymentsRepository["createPayment"]>>;
+    try {
+      organizerPayment = await this.paymentsRepo.createPayment({
+        booking: { connect: { id: booking.id } },
+        user: { connect: { id: input.userId } },
+        provider: "stripe",
+        providerPaymentId: authorized.providerPaymentId,
+        paymentChannel: "ONLINE",
+        paymentMethodType: authorized.paymentMethodType,
+        amountCents: organizerShare.totalAmountCents,
+        currency: booking.currency,
+        status: "AUTHORIZED",
+        purpose: "BOOKING_FULL",
+      });
+    } catch (err) {
+      // L'autorisation Stripe a réussi mais son enregistrement en base a
+      // échoué : ne jamais laisser une autorisation orpheline (CDC §68).
+      await this.paymentProvider.voidAuthorization({ providerPaymentId: authorized.providerPaymentId }).catch(() => undefined);
+      await this.bookingsRepo.transitionStatus(booking.id, "PAYMENT_PENDING", "CHECKOUT_PENDING");
+      throw err;
+    }
 
     // 2. Créer la garantie (CDC §25, un seul mécanisme actif — §25.3).
     if (input.guaranteeType === "WALLET_RESERVE") {
@@ -176,9 +206,20 @@ export class SplitCheckoutService {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, "La réservation n'a pas pu être confirmée pour le moment.", 502);
     }
 
-    // 4. Capturer la part organisateur et confirmer.
-    const captured = await this.paymentProvider.confirmOrCapture({ providerPaymentId: authorized.providerPaymentId });
-    if (captured.status !== "succeeded") {
+    // 4. Capturer la part organisateur et confirmer. Legacy a déjà confirmé
+    // à ce stade : une capture qui échoue OU qui lève une exception (timeout
+    // Stripe pendant la capture, CDC §68) doit produire MANUAL_REVIEW dans
+    // les deux cas, jamais un FAILED silencieux — l'argent est peut-être
+    // déjà bloqué côté Stripe alors que Legacy est confirmé.
+    let captureSucceeded: boolean;
+    try {
+      const captured = await this.paymentProvider.confirmOrCapture({ providerPaymentId: authorized.providerPaymentId });
+      captureSucceeded = captured.status === "succeeded";
+    } catch (err) {
+      logger.error({ event: "CaptureThrewAfterLegacy", bookingId: booking.id, err }, "exception pendant la capture Stripe après confirmation Legacy (SPLIT)");
+      captureSucceeded = false;
+    }
+    if (!captureSucceeded) {
       await this.paymentsRepo.updatePaymentStatus(organizerPayment.id, { status: "FAILED" });
       await this.bookingsRepo.updateStatus(booking.id, "MANUAL_REVIEW");
       throw new AppError(ErrorCodes.VALIDATION_FAILED, "La réservation n'a pas pu être confirmée pour le moment.", 502);

@@ -89,6 +89,24 @@ const envSchema = z.object({
   // "bloqué" dans les indicateurs de santé back-office (aucune définition
   // métier précise au CDC ; valeur configurable plutôt que hardcodée).
   WALLET_HOLD_STALE_HOURS: z.coerce.number().int().positive().default(24),
+
+  // --- Lot 10 — durcissement pré-pilote (CDC §59.2, §69) ---
+  // Liste blanche explicite plutôt qu'un `*` permissif (CDC §59.2 : "CORS
+  // limité"). Vide par défaut = seule l'origine `PUBLIC_BASE_URL` est
+  // autorisée (calculé dans app.ts, pas ici, pour rester une simple chaîne).
+  CORS_ALLOWED_ORIGINS: z.string().optional(),
+  RATE_LIMIT_WINDOW_MINUTES: z.coerce.number().int().positive().default(15),
+  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(300),
+  // Plus strict spécifiquement sur `/auth/*` (CDC §59.1 : "limite tentatives
+  // login" — distinct de `LOGIN_MAX_FAILED_ATTEMPTS`, qui compte les échecs
+  // par compte ; ceci limite le volume de requêtes par IP, indépendamment
+  // du succès/échec).
+  RATE_LIMIT_AUTH_MAX_REQUESTS: z.coerce.number().int().positive().default(20),
+
+  // CDC §100, Annexe B ("Pilot feature flag") — cohorte pilote restreinte :
+  // tant qu'actif, seuls les comptes marqués `pilotUser` peuvent créer une
+  // réservation (voir `User.pilotUser`, `bookings.routes.ts`).
+  PILOT_MODE_ENABLED: boolFromString.default("false"),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

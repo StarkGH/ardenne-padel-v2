@@ -171,6 +171,29 @@ describe("Bookings — parcours HTTP complet (sans Legacy)", () => {
     expect(cancelRes.body.data.status).toBe("CANCELED");
   });
 
+  it("rejects cancellation past the client-facing cancellation deadline (CDC §29)", async () => {
+    const monday14 = nextMondayAt(14);
+    const cookie = await registerAndLogin();
+
+    const createRes = await request(app)
+      .post("/api/v1/bookings")
+      .set("Cookie", cookie)
+      .send({ courtId, startAt: monday14.toISOString(), durationMinutes: 60 });
+    const bookingId = createRes.body.data.id;
+    await request(app).post("/api/v1/payments/checkout").set("Cookie", cookie).send({ bookingId, paymentMethodId: "pm_card_visa" });
+
+    // Simule l'échéance déjà passée (le délai réel — 24h avant le créneau —
+    // rendrait ce test dépendant de l'heure d'exécution).
+    await prisma.booking.update({ where: { id: bookingId }, data: { cancellationDeadline: new Date(Date.now() - 3600_000) } });
+
+    const cancelRes = await request(app).post(`/api/v1/bookings/${bookingId}/cancel`).set("Cookie", cookie);
+    expect(cancelRes.status).toBe(409);
+    expect(cancelRes.body.error.code).toBe("CANCELLATION_DEADLINE_PASSED");
+
+    const stillConfirmed = await prisma.booking.findUniqueOrThrow({ where: { id: bookingId } });
+    expect(stillConfirmed.status).toBe("CONFIRMED");
+  });
+
   it("rejects booking creation for an unauthenticated visitor", async () => {
     const monday11am = nextMondayAt(11);
     const res = await request(app)
