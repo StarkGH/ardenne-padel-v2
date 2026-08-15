@@ -9,6 +9,7 @@ import { IdentityRepository } from "./modules/identity/identity.repository.js";
 import { IdentityService } from "./modules/identity/identity.service.js";
 import { DevConsoleEmailSender, type EmailSender } from "./modules/identity/email-sender.js";
 import { createIdentityRouter } from "./modules/identity/identity.routes.js";
+import { createProfileRouter } from "./modules/identity/profile.routes.js";
 import { attachAuthUser } from "./http/auth-middleware.js";
 import { requestContext } from "./http/request-context.js";
 import { errorHandler, notFoundHandler } from "./http/error-handler.js";
@@ -239,6 +240,7 @@ export function createApp({
 
   app.use("/api/v1", createHealthRouter(prisma));
   app.use("/api/v1/auth", createIdentityRouter(identityService, config));
+  app.use("/api/v1", createProfileRouter(identityService));
   app.use("/api/v1", createCourtsRouter(courtsRepository));
   app.use("/api/v1", createAvailabilityRouter(availabilityService, courtsRepository));
   app.use("/api/v1", createPricingRouter(pricingService, courtsRepository));

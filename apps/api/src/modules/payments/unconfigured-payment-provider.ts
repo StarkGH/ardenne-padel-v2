@@ -41,4 +41,10 @@ export class UnconfiguredPaymentProvider implements PaymentProvider {
   async getActualProviderFee(): Promise<never> {
     this.fail();
   }
+  async listPaymentMethods(): Promise<never> {
+    this.fail();
+  }
+  async detachPaymentMethod(): Promise<never> {
+    this.fail();
+  }
 }

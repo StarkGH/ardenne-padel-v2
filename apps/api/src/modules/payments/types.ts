@@ -81,6 +81,23 @@ export interface GetActualProviderFeeInput {
   providerPaymentId: string;
 }
 
+export interface PaymentMethodRef {
+  id: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+}
+
+export interface ListPaymentMethodsInput {
+  customerId: string;
+}
+
+export interface DetachPaymentMethodInput {
+  customerId: string;
+  paymentMethodId: string;
+}
+
 export interface PaymentProvider {
   createCustomer(input: CreateCustomerInput): Promise<PaymentCustomerRef>;
   createSetup(input: CreateSetupInput): Promise<SetupRef>;
@@ -90,4 +107,7 @@ export interface PaymentProvider {
   refund(input: RefundInput): Promise<RefundRef>;
   chargeSavedMethod(input: ChargeSavedMethodInput): Promise<PaymentRef>;
   getActualProviderFee(input: GetActualProviderFeeInput): Promise<ProviderFeeRef | null>;
+  /** CDC §54 écran 19 — moyens de paiement enregistrés (cartes Stripe attachées au customer). */
+  listPaymentMethods(input: ListPaymentMethodsInput): Promise<PaymentMethodRef[]>;
+  detachPaymentMethod(input: DetachPaymentMethodInput): Promise<void>;
 }

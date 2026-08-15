@@ -174,4 +174,85 @@ describe("Identity — parcours complet (CDC §7.2, §43)", () => {
       .send({ email: credentials.email, password: "NouveauMotDePasse456" });
     expect(loginNewPassword.status).toBe(200);
   });
+
+  it("GET/PATCH /me/profile reads and updates the authenticated user's name and phone (CDC §54 écran 18)", async () => {
+    await request(app).post("/api/v1/auth/register").send(credentials);
+    const verifyToken = extractToken(emailSender.verificationUrls[0]!);
+    await request(app).post("/api/v1/auth/verify-email").send({ token: verifyToken });
+    const login = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: credentials.email, password: credentials.password });
+    const cookie = login.headers["set-cookie"] as string;
+
+    const before = await request(app).get("/api/v1/me/profile").set("Cookie", cookie);
+    expect(before.status).toBe(200);
+    expect(before.body.data).toMatchObject({ firstName: "Joueur", lastName: "Test", phone: null });
+
+    const update = await request(app)
+      .patch("/api/v1/me/profile")
+      .set("Cookie", cookie)
+      .send({ firstName: "Joueuse", lastName: "Testée", phone: "+32470000000" });
+    expect(update.status).toBe(200);
+    expect(update.body.data).toMatchObject({ firstName: "Joueuse", lastName: "Testée", phone: "+32470000000" });
+
+    const after = await request(app).get("/api/v1/me/profile").set("Cookie", cookie);
+    expect(after.body.data).toMatchObject({ firstName: "Joueuse", lastName: "Testée", phone: "+32470000000" });
+  });
+
+  it("GET /me/profile is refused without a session, like /auth/me", async () => {
+    const res = await request(app).get("/api/v1/me/profile");
+    expect(res.status).toBe(401);
+  });
+
+  it("POST /auth/password/change lets the user log in with the new password, keeping the current session valid", async () => {
+    await request(app).post("/api/v1/auth/register").send(credentials);
+    const verifyToken = extractToken(emailSender.verificationUrls[0]!);
+    await request(app).post("/api/v1/auth/verify-email").send({ token: verifyToken });
+    const login = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: credentials.email, password: credentials.password });
+    const cookie = login.headers["set-cookie"] as string;
+
+    const change = await request(app)
+      .post("/api/v1/auth/password/change")
+      .set("Cookie", cookie)
+      .send({ currentPassword: credentials.password, newPassword: "UnAutreMotDePasse789" });
+    expect(change.status).toBe(204);
+
+    // La session courante reste valide (changement de mot de passe volontaire, pas une réinitialisation d'urgence).
+    const meAfterChange = await request(app).get("/api/v1/auth/me").set("Cookie", cookie);
+    expect(meAfterChange.status).toBe(200);
+
+    const loginOldPassword = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: credentials.email, password: credentials.password });
+    expect(loginOldPassword.status).toBe(401);
+
+    const loginNewPassword = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: credentials.email, password: "UnAutreMotDePasse789" });
+    expect(loginNewPassword.status).toBe(200);
+  });
+
+  it("POST /auth/password/change rejects an incorrect current password without changing anything", async () => {
+    await request(app).post("/api/v1/auth/register").send(credentials);
+    const verifyToken = extractToken(emailSender.verificationUrls[0]!);
+    await request(app).post("/api/v1/auth/verify-email").send({ token: verifyToken });
+    const login = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: credentials.email, password: credentials.password });
+    const cookie = login.headers["set-cookie"] as string;
+
+    const change = await request(app)
+      .post("/api/v1/auth/password/change")
+      .set("Cookie", cookie)
+      .send({ currentPassword: "MauvaisMotDePasse", newPassword: "UnAutreMotDePasse789" });
+    expect(change.status).toBe(401);
+    expect(change.body.error.code).toBe("INVALID_CREDENTIALS");
+
+    const loginStillOldPassword = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: credentials.email, password: credentials.password });
+    expect(loginStillOldPassword.status).toBe(200);
+  });
 });

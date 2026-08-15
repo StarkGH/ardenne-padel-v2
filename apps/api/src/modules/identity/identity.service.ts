@@ -13,6 +13,12 @@ export interface RegisterInput {
   phone?: string;
 }
 
+export interface UpdateProfileInput {
+  firstName: string;
+  lastName: string;
+  phone?: string;
+}
+
 export interface LoginInput {
   email: string;
   password: string;
@@ -189,5 +195,57 @@ export class IdentityService {
     await this.repo.revokeAllSessionsForUser(token.userId);
 
     logger.info({ event: "UserPasswordReset", userId: token.userId }, "user password reset");
+  }
+
+  private toProfile(user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    phone: string | null;
+    role: string;
+    status: string;
+    pilotUser: boolean;
+    createdAt: Date;
+  }) {
+    return {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      phone: user.phone,
+      role: user.role,
+      status: user.status,
+      pilotUser: user.pilotUser,
+      createdAt: user.createdAt,
+    };
+  }
+
+  /** CDC §54 écran 18 — profil. */
+  async getProfile(userId: string) {
+    const user = await this.repo.findUserById(userId);
+    if (!user) throw new AppError(ErrorCodes.NOT_FOUND, "Utilisateur introuvable.", 404);
+    return this.toProfile(user);
+  }
+
+  async updateProfile(userId: string, input: UpdateProfileInput) {
+    const user = await this.repo.updateProfile(userId, input);
+    logger.info({ event: "UserProfileUpdated", userId }, "user profile updated");
+    return this.toProfile(user);
+  }
+
+  /** Changement de mot de passe authentifié — distinct du flux par jeton (`resetPassword`) qui, lui, ne connaît pas le mot de passe actuel. */
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.repo.findUserById(userId);
+    if (!user) throw new AppError(ErrorCodes.NOT_FOUND, "Utilisateur introuvable.", 404);
+
+    const ok = await verifyPassword(currentPassword, user.passwordHash);
+    if (!ok) throw new AppError(ErrorCodes.INVALID_CREDENTIALS, "Mot de passe actuel incorrect.", 401);
+
+    this.assertPasswordStrength(newPassword);
+    const passwordHash = await hashPassword(newPassword);
+    await this.repo.updatePasswordHash(userId, passwordHash);
+
+    logger.info({ event: "UserPasswordChanged", userId }, "user password changed");
   }
 }

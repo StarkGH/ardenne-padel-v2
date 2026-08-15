@@ -15,6 +15,12 @@ function fakeClient(overrides: Partial<StripeClientPort> = {}): StripeClientPort
     refunds: { create: vi.fn().mockResolvedValue({ id: "re_123", status: "succeeded" }) },
     balanceTransactions: { retrieve: vi.fn().mockResolvedValue({ id: "txn_123", fee: 74, net: 4726, currency: "eur" }) },
     webhooks: { constructEvent: vi.fn() },
+    paymentMethods: {
+      list: vi.fn().mockResolvedValue({
+        data: [{ id: "pm_123", card: { brand: "visa", last4: "4242", exp_month: 12, exp_year: 2030 } }],
+      }),
+      detach: vi.fn().mockResolvedValue({ id: "pm_123", customer: null }),
+    },
     ...overrides,
   } as StripeClientPort;
 }
@@ -124,5 +130,29 @@ describe("StripePaymentProvider (CDC §21.1, §2.6 — jamais de donnée carte s
     const provider = new StripePaymentProvider(client);
     const fee = await provider.getActualProviderFee({ providerPaymentId: "pi_123" });
     expect(fee).toEqual({ feeCents: 74, netCents: 4726, currency: "eur", balanceTransactionId: "txn_123" });
+  });
+
+  it("lists saved cards, mapping only Stripe's card fields (CDC §54 écran 19)", async () => {
+    const client = fakeClient();
+    const provider = new StripePaymentProvider(client);
+    const methods = await provider.listPaymentMethods({ customerId: "cus_123" });
+    expect(methods).toEqual([{ id: "pm_123", brand: "visa", last4: "4242", expMonth: 12, expYear: 2030 }]);
+    expect(client.paymentMethods.list).toHaveBeenCalledWith({ customer: "cus_123", type: "card" });
+  });
+
+  it("detaches a saved card that belongs to the customer", async () => {
+    const client = fakeClient();
+    const provider = new StripePaymentProvider(client);
+    await provider.detachPaymentMethod({ customerId: "cus_123", paymentMethodId: "pm_123" });
+    expect(client.paymentMethods.detach).toHaveBeenCalledWith("pm_123");
+  });
+
+  it("refuses to detach a card that isn't in the customer's own list (Stripe detach() isn't customer-scoped, CDC §111)", async () => {
+    const client = fakeClient();
+    const provider = new StripePaymentProvider(client);
+    await expect(provider.detachPaymentMethod({ customerId: "cus_123", paymentMethodId: "pm_other" })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    expect(client.paymentMethods.detach).not.toHaveBeenCalled();
   });
 });

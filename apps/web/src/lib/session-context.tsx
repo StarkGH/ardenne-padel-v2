@@ -9,6 +9,7 @@ interface SessionContextValue {
   loading: boolean;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
+  logoutAll: () => Promise<void>;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -49,7 +50,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
-  return <SessionContext.Provider value={{ user, loading, refresh, logout }}>{children}</SessionContext.Provider>;
+  /** CDC §54 écran 18 — déconnexion de toutes les sessions actives. */
+  const logoutAll = useCallback(async () => {
+    await api.post("/auth/logout-all");
+    setUser(null);
+  }, []);
+
+  return <SessionContext.Provider value={{ user, loading, refresh, logout, logoutAll }}>{children}</SessionContext.Provider>;
 }
 
 export function useSession(): SessionContextValue {

@@ -47,6 +47,13 @@ export class IdentityRepository {
     return this.db.user.update({ where: { id: userId }, data: { passwordHash } });
   }
 
+  updateProfile(userId: string, input: { firstName: string; lastName: string; phone?: string | null }) {
+    return this.db.user.update({
+      where: { id: userId },
+      data: { firstName: input.firstName, lastName: input.lastName, phone: input.phone ?? null },
+    });
+  }
+
   touchLastLogin(userId: string) {
     return this.db.user.update({ where: { id: userId }, data: { lastLoginAt: new Date() } });
   }

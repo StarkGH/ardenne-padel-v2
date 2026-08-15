@@ -21,6 +21,10 @@ export function formatDateTime(iso: string): string {
   return DateTime.fromISO(iso, { zone: "utc" }).setZone(DISPLAY_TIMEZONE).setLocale("fr").toFormat("EEEE d MMMM 'à' HH:mm");
 }
 
+export function formatDate(iso: string): string {
+  return DateTime.fromISO(iso, { zone: "utc" }).setZone(DISPLAY_TIMEZONE).setLocale("fr").toFormat("d MMMM yyyy");
+}
+
 export function formatTimeRange(startIso: string, endIso: string): string {
   const start = DateTime.fromISO(startIso, { zone: "utc" }).setZone(DISPLAY_TIMEZONE);
   const end = DateTime.fromISO(endIso, { zone: "utc" }).setZone(DISPLAY_TIMEZONE);

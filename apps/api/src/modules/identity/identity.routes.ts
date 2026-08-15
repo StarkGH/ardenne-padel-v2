@@ -23,6 +23,7 @@ const verifyEmailSchema = z.object({ token: z.string().min(1) });
 const resendVerificationSchema = z.object({ email: z.string().email() });
 const forgotPasswordSchema = z.object({ email: z.string().email() });
 const resetPasswordSchema = z.object({ token: z.string().min(1), newPassword: z.string().min(1) });
+const changePasswordSchema = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(1) });
 
 function parseOrThrow<T>(schema: z.ZodSchema<T>, body: unknown): T {
   const result = schema.safeParse(body);
@@ -126,6 +127,17 @@ export function createIdentityRouter(identityService: IdentityService, config: A
 
   router.get("/me", requireAuth, (req, res) => {
     res.status(200).json({ data: req.authUser });
+  });
+
+  /** Changement de mot de passe authentifié (CDC §54 écran 18) — distinct de `/password/reset` (jeton par e-mail). */
+  router.post("/password/change", requireAuth, async (req, res, next) => {
+    try {
+      const { currentPassword, newPassword } = parseOrThrow(changePasswordSchema, req.body);
+      await identityService.changePassword(req.authUser!.id, currentPassword, newPassword);
+      res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
   });
 
   return router;

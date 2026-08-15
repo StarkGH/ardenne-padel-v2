@@ -1,3 +1,4 @@
+import { AppError, ErrorCodes } from "@ardenne/shared";
 import type { StripeClientPort, StripePaymentIntentLike } from "./stripe-client-port.js";
 import type {
   ChargeSavedMethodInput,
@@ -5,9 +6,12 @@ import type {
   CreateCustomerInput,
   CreatePaymentInput,
   CreateSetupInput,
+  DetachPaymentMethodInput,
   GetActualProviderFeeInput,
+  ListPaymentMethodsInput,
   PaymentCustomerRef,
   PaymentIntentStatus,
+  PaymentMethodRef,
   PaymentProvider,
   PaymentRef,
   ProviderFeeRef,
@@ -137,6 +141,29 @@ export class StripePaymentProvider implements PaymentProvider {
         : pi.latest_charge.balance_transaction.id;
     const tx = await this.client.balanceTransactions.retrieve(btId);
     return { feeCents: tx.fee, netCents: tx.net, currency: tx.currency, balanceTransactionId: tx.id };
+  }
+
+  /** CDC §54 écran 19 — cartes attachées au customer. */
+  async listPaymentMethods(input: ListPaymentMethodsInput): Promise<PaymentMethodRef[]> {
+    const result = await this.client.paymentMethods.list({ customer: input.customerId, type: "card" });
+    return result.data
+      .filter((pm) => Boolean(pm.card))
+      .map((pm) => ({
+        id: pm.id,
+        brand: pm.card!.brand,
+        last4: pm.card!.last4,
+        expMonth: pm.card!.exp_month,
+        expYear: pm.card!.exp_year,
+      }));
+  }
+
+  /** Stripe ne scope pas `detach()` par customer — on vérifie l'appartenance avant (CDC §111). */
+  async detachPaymentMethod(input: DetachPaymentMethodInput): Promise<void> {
+    const methods = await this.listPaymentMethods({ customerId: input.customerId });
+    if (!methods.some((m) => m.id === input.paymentMethodId)) {
+      throw new AppError(ErrorCodes.NOT_FOUND, "Moyen de paiement introuvable.", 404);
+    }
+    await this.client.paymentMethods.detach(input.paymentMethodId);
   }
 }
 

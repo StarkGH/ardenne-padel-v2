@@ -182,3 +182,23 @@ export interface CreditPackPurchaseResult {
   requiresAction: boolean;
   clientSecret?: string;
 }
+
+export interface Profile {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone: string | null;
+  role: Role;
+  status: UserStatus;
+  pilotUser: boolean;
+  createdAt: string;
+}
+
+export interface PaymentMethod {
+  id: string;
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+}

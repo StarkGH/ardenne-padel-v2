@@ -83,6 +83,23 @@ export function createRealStripeClient(secretKey: string): StripeClientPort {
         return { id: event.id, type: event.type, data: { object: event.data.object as unknown as Record<string, unknown> } };
       },
     },
+    paymentMethods: {
+      async list(params) {
+        const result = await stripe.paymentMethods.list({ customer: params.customer, type: params.type });
+        return {
+          data: result.data.map((pm) => ({
+            id: pm.id,
+            card: pm.card
+              ? { brand: pm.card.brand, last4: pm.card.last4, exp_month: pm.card.exp_month, exp_year: pm.card.exp_year }
+              : undefined,
+          })),
+        };
+      },
+      async detach(id) {
+        const pm = await stripe.paymentMethods.detach(id);
+        return { id: pm.id, customer: typeof pm.customer === "string" ? pm.customer : (pm.customer?.id ?? null) };
+      },
+    },
     terminal: {
       async createConnectionToken(location) {
         const token = await stripe.terminal.connectionTokens.create(location ? { location } : undefined);

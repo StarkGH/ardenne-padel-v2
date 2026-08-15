@@ -1,13 +1,17 @@
 import { randomUUID } from "node:crypto";
+import { AppError, ErrorCodes } from "@ardenne/shared";
 import type {
   ChargeSavedMethodInput,
   ConfirmOrCaptureInput,
   CreateCustomerInput,
   CreatePaymentInput,
   CreateSetupInput,
+  DetachPaymentMethodInput,
   GetActualProviderFeeInput,
+  ListPaymentMethodsInput,
   PaymentCustomerRef,
   PaymentIntentStatus,
+  PaymentMethodRef,
   PaymentProvider,
   PaymentRef,
   ProviderFeeRef,
@@ -78,5 +82,23 @@ export class FakePaymentProvider implements PaymentProvider {
 
   async getActualProviderFee(_input: GetActualProviderFeeInput): Promise<ProviderFeeRef | null> {
     return { feeCents: 74, netCents: 4726, currency: "eur", balanceTransactionId: `txn_fake_${randomUUID()}` };
+  }
+
+  /** Moyens de paiement enregistrés, par `customerId` — configurable par test. */
+  savedMethods: Map<string, PaymentMethodRef[]> = new Map();
+
+  async listPaymentMethods(input: ListPaymentMethodsInput): Promise<PaymentMethodRef[]> {
+    return this.savedMethods.get(input.customerId) ?? [];
+  }
+
+  async detachPaymentMethod(input: DetachPaymentMethodInput): Promise<void> {
+    const methods = this.savedMethods.get(input.customerId) ?? [];
+    if (!methods.some((m) => m.id === input.paymentMethodId)) {
+      throw new AppError(ErrorCodes.NOT_FOUND, "Moyen de paiement introuvable.", 404);
+    }
+    this.savedMethods.set(
+      input.customerId,
+      methods.filter((m) => m.id !== input.paymentMethodId),
+    );
   }
 }

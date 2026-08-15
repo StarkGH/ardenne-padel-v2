@@ -102,5 +102,38 @@ export function createPaymentsRouter(
     }
   });
 
+  /**
+   * CDC §54 écran 19 — moyens de paiement enregistrés. Pas de client Stripe
+   * créé à la volée ici : un utilisateur qui n'a jamais rien payé/enregistré
+   * n'a pas de `stripeCustomerId`, la liste est alors vide sans dépendre de
+   * la configuration Stripe (contrairement à `/payments/setup`).
+   */
+  router.get("/me/payment-methods", requireAuth, async (req, res, next) => {
+    try {
+      const user = await paymentsRepo.findUserForPayment(req.authUser!.id);
+      if (!user?.stripeCustomerId) {
+        res.status(200).json({ data: [] });
+        return;
+      }
+      const methods = await paymentProvider.listPaymentMethods({ customerId: user.stripeCustomerId });
+      res.status(200).json({ data: methods });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete("/me/payment-methods/:id", requireAuth, async (req, res, next) => {
+    try {
+      const user = await paymentsRepo.findUserForPayment(req.authUser!.id);
+      if (!user?.stripeCustomerId) {
+        throw new AppError(ErrorCodes.NOT_FOUND, "Moyen de paiement introuvable.", 404);
+      }
+      await paymentProvider.detachPaymentMethod({ customerId: user.stripeCustomerId, paymentMethodId: req.params.id! });
+      res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  });
+
   return router;
 }

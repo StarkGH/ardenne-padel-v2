@@ -10,6 +10,7 @@ function fakeClient(overrides: Partial<StripeClientPort["terminal"]> = {}): Stri
     refunds: { create: vi.fn() },
     balanceTransactions: { retrieve: vi.fn() },
     webhooks: { constructEvent: vi.fn() },
+    paymentMethods: { list: vi.fn(), detach: vi.fn() },
     terminal: {
       createConnectionToken: vi.fn().mockResolvedValue({ secret: "pst_test_123" }),
       createPaymentIntent: vi.fn().mockResolvedValue({ id: "pi_term_1", status: "requires_capture", client_secret: null }),

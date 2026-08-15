@@ -36,6 +36,12 @@ export interface StripeClientPort {
   webhooks: {
     constructEvent(payload: string | Buffer, signature: string, secret: string): StripeEventLike;
   };
+  paymentMethods: {
+    list(params: { customer: string; type: "card" }): Promise<{
+      data: Array<{ id: string; card?: { brand: string; last4: string; exp_month: number; exp_year: number } }>;
+    }>;
+    detach(id: string): Promise<{ id: string; customer: string | null }>;
+  };
   /** CDC §22.3-§22.4 — Stripe Terminal (card-present). */
   terminal: {
     createConnectionToken(location?: string): Promise<{ secret: string }>;
