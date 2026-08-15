@@ -69,6 +69,16 @@ export function createPaymentsRouter(
     }
   });
 
+  /** CDC §24.5, §54 écran 23 — aperçu des parts/frais avant validation, sans effet de bord. */
+  router.get("/bookings/:id/split-preview", requireAuth, async (req, res, next) => {
+    try {
+      const preview = await splitCheckoutService.previewShares(req.params.id!, req.authUser!.id);
+      res.status(200).json({ data: preview });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.get("/payments/:id/status", requireAuth, async (req, res, next) => {
     try {
       const payment = await paymentsRepo.findPaymentByProviderPaymentId(req.params.id!);

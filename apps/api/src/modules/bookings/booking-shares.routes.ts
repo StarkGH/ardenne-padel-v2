@@ -13,6 +13,27 @@ const paySchema = z.object({
 export function createBookingSharesRouter(service: BookingShareService): Router {
   const router = Router();
 
+  /** CDC §54 écran 13 — l'organisateur consulte les parts de sa réservation SPLIT. */
+  router.get("/bookings/:id/shares", requireAuth, async (req, res, next) => {
+    try {
+      const shares = await service.listSharesForOrganizer(req.params.id!, req.authUser!.id);
+      res.status(200).json({
+        data: shares.map((s) => ({
+          id: s.id,
+          participantUserId: s.participantUserId,
+          invitedEmail: s.invitedEmail,
+          baseAmountCents: s.baseAmountCents,
+          serviceFeeAmountCents: s.serviceFeeAmountCents,
+          totalAmountCents: s.totalAmountCents,
+          status: s.status,
+          paidAt: s.paidAt,
+        })),
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.get("/booking-shares/:token", async (req, res, next) => {
     try {
       const share = await service.getShareByToken(req.params.token!);

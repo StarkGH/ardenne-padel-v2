@@ -5,17 +5,15 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/datetime";
 import { Button, Card, ErrorBanner, InfoBanner, PriceTag, Spinner } from "@/components/ui";
-import type { Booking, CheckoutResult } from "@/lib/types";
+import type { Booking, CheckoutResult, GuaranteeType, SplitCheckoutResult, SplitPreview } from "@/lib/types";
 
-// CDC §54 écrans 8-11 — choix du mode de paiement, moyen de paiement, paiement en ligne, confirmation.
+// CDC §54 écrans 8-11 — mode de paiement, moyen de paiement, paiement, confirmation.
 export default function CheckoutPage({ params }: { params: Promise<{ bookingId: string }> }) {
   const { bookingId } = use(params);
   const router = useRouter();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
-  const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [unconfigured, setUnconfigured] = useState(false);
 
   useEffect(() => {
     api
@@ -24,38 +22,6 @@ export default function CheckoutPage({ params }: { params: Promise<{ bookingId: 
       .catch((err) => setError(err instanceof ApiError ? err.message : "Réservation introuvable."))
       .finally(() => setLoading(false));
   }, [bookingId]);
-
-  async function handlePay() {
-    setPaying(true);
-    setError(null);
-    setUnconfigured(false);
-    try {
-      // CDC §21.1 : le frontend ne collecte/négocie jamais directement le
-      // secret Stripe ici sans intégration Stripe Elements (pas encore
-      // câblée — aucun compte Stripe pour Ardenne Padel, voir ADR-0010).
-      // `paymentMethodId` est un identifiant Stripe obtenu côté client via
-      // Stripe.js une fois l'intégration branchée ; en attendant, ce bouton
-      // exerce le parcours complet contre l'API réelle et affiche la
-      // dégradation attendue (503 `STRIPE_NOT_CONFIGURED`).
-      const result = await api.post<CheckoutResult>("/payments/checkout", {
-        bookingId,
-        paymentMethodId: "pm_card_visa",
-      });
-      if (result.bookingStatus === "CONFIRMED") {
-        router.push(`/bookings/${bookingId}`);
-      } else {
-        setBooking((b) => (b ? { ...b, status: result.bookingStatus as Booking["status"] } : b));
-      }
-    } catch (err) {
-      if (err instanceof ApiError && err.code === "STRIPE_NOT_CONFIGURED") {
-        setUnconfigured(true);
-      } else {
-        setError(err instanceof ApiError ? err.message : "Le paiement n'a pas pu être traité.");
-      }
-    } finally {
-      setPaying(false);
-    }
-  }
 
   if (loading) return <Spinner />;
   if (!booking) return <ErrorBanner message={error ?? "Réservation introuvable."} />;
@@ -67,6 +33,38 @@ export default function CheckoutPage({ params }: { params: Promise<{ bookingId: 
         <Button onClick={() => router.push(`/bookings/${bookingId}`)}>Voir la réservation</Button>
       </Card>
     );
+  }
+
+  return booking.paymentMode === "SPLIT" ? <SplitCheckout booking={booking} /> : <FullCheckout booking={booking} />;
+}
+
+function FullCheckout({ booking }: { booking: Booking }) {
+  const router = useRouter();
+  const [paying, setPaying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [unconfigured, setUnconfigured] = useState(false);
+
+  async function handlePay() {
+    setPaying(true);
+    setError(null);
+    setUnconfigured(false);
+    try {
+      // CDC §21.1 : pas d'intégration Stripe Elements réelle sans compte
+      // Stripe (ADR-0010) — `paymentMethodId` est un identifiant de test, le
+      // reste du parcours est câblé contre l'API réelle.
+      const result = await api.post<CheckoutResult>("/payments/checkout", { bookingId: booking.id, paymentMethodId: "pm_card_visa" });
+      if (result.bookingStatus === "CONFIRMED") {
+        router.push(`/bookings/${booking.id}`);
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "STRIPE_NOT_CONFIGURED") {
+        setUnconfigured(true);
+      } else {
+        setError(err instanceof ApiError ? err.message : "Le paiement n'a pas pu être traité.");
+      }
+    } finally {
+      setPaying(false);
+    }
   }
 
   return (
@@ -95,6 +93,146 @@ export default function CheckoutPage({ params }: { params: Promise<{ bookingId: 
       <Button onClick={handlePay} disabled={paying}>
         {paying ? "Traitement..." : <>Payer <PriceTag cents={booking.priceTotalCents} currency={booking.currency} /></>}
       </Button>
+    </div>
+  );
+}
+
+// CDC §21-§26, §54 écrans 21-23 — garantie du split, consentement au débit futur, frais avant validation.
+function SplitCheckout({ booking }: { booking: Booking }) {
+  const router = useRouter();
+  const [preview, setPreview] = useState<SplitPreview | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(true);
+  const [guaranteeType, setGuaranteeType] = useState<GuaranteeType>("WALLET_RESERVE");
+  const [consent, setConsent] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [unconfigured, setUnconfigured] = useState(false);
+
+  useEffect(() => {
+    api
+      .get<SplitPreview>(`/bookings/${booking.id}/split-preview`)
+      .then(setPreview)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Impossible de calculer les parts."))
+      .finally(() => setLoadingPreview(false));
+  }, [booking.id]);
+
+  const requiresConsent = guaranteeType === "CARD_OFF_SESSION";
+  const canPay = !requiresConsent || consent;
+
+  async function handlePay() {
+    setPaying(true);
+    setError(null);
+    setUnconfigured(false);
+    try {
+      const result = await api.post<SplitCheckoutResult>("/payments/checkout", {
+        bookingId: booking.id,
+        paymentMethodId: "pm_card_visa",
+        guaranteeType,
+      });
+      if (result.bookingStatus === "CONFIRMED") {
+        router.push(`/bookings/${booking.id}`);
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "STRIPE_NOT_CONFIGURED") {
+        setUnconfigured(true);
+      } else if (err instanceof ApiError && err.code === "3DS_REQUIRED_UNSUPPORTED_FOR_SPLIT") {
+        setError("Ce moyen de paiement nécessite une vérification supplémentaire non prise en charge pour le paiement partagé. Essayez un autre moyen de paiement.");
+      } else {
+        setError(err instanceof ApiError ? err.message : "Le paiement n'a pas pu être traité.");
+      }
+    } finally {
+      setPaying(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <h1 className="text-xl font-bold">Paiement partagé</h1>
+      <Card className="flex flex-col gap-2">
+        <p className="text-sm capitalize text-slate-600">{formatDateTime(booking.startAt)}</p>
+        <p className="text-2xl font-bold">
+          <PriceTag cents={booking.priceTotalCents} currency={booking.currency} />
+        </p>
+      </Card>
+
+      {loadingPreview && <Spinner />}
+
+      {preview && (
+        <>
+          {/* Écran 23 — frais de service visible avant validation (CDC §24.5). */}
+          <section>
+            <h2 className="mb-2 text-sm font-semibold text-slate-500">Répartition ({preview.shareCount} participants)</h2>
+            <Card className="flex flex-col gap-2">
+              {preview.shares.map((share, i) => (
+                <div key={i} className="flex items-center justify-between text-sm">
+                  <span className="text-slate-600">
+                    {share.isOrganizer ? "Vous (à régler maintenant)" : `Participant ${i + 1}`}
+                    {share.serviceFeeAmountCents > 0 && (
+                      <span className="ml-1 text-xs text-slate-400">(dont <PriceTag cents={share.serviceFeeAmountCents} currency={preview.currency} /> de frais)</span>
+                    )}
+                  </span>
+                  <span className="font-medium">
+                    <PriceTag cents={share.totalAmountCents} currency={preview.currency} />
+                  </span>
+                </div>
+              ))}
+            </Card>
+          </section>
+
+          {/* Écran 21 — garantie de l'organisateur (CDC §25). */}
+          <section>
+            <h2 className="mb-2 text-sm font-semibold text-slate-500">Garantie des parts non payées</h2>
+            <p className="mb-3 text-xs text-slate-500">
+              Vous garantissez le paiement des autres participants (<PriceTag cents={preview.guaranteedCents} currency={preview.currency} /> au total). Si un
+              participant ne règle pas sa part avant l&apos;échéance, elle vous sera prélevée.
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => setGuaranteeType("WALLET_RESERVE")}
+                className={`min-h-11 rounded-xl border-2 px-4 py-3 text-left text-sm font-medium ${
+                  guaranteeType === "WALLET_RESERVE" ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+                }`}
+              >
+                Réserver sur mon solde wallet
+              </button>
+              <button
+                onClick={() => setGuaranteeType("CARD_OFF_SESSION")}
+                className={`min-h-11 rounded-xl border-2 px-4 py-3 text-left text-sm font-medium ${
+                  guaranteeType === "CARD_OFF_SESSION" ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+                }`}
+              >
+                Autoriser ma carte bancaire
+              </button>
+            </div>
+          </section>
+
+          {/* Écran 22 — consentement explicite au débit futur si carte. */}
+          {requiresConsent && (
+            <Card className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={consent}
+                onChange={(e) => setConsent(e.target.checked)}
+                className="mt-1 h-5 w-5 accent-emerald-600"
+                id="consent"
+              />
+              <label htmlFor="consent" className="text-sm text-slate-700">
+                J&apos;autorise Ardenne Padel à débiter ma carte bancaire pour couvrir les parts non payées par les autres participants avant
+                l&apos;échéance de la réservation.
+              </label>
+            </Card>
+          )}
+
+          {unconfigured && (
+            <InfoBanner message="Le paiement en ligne n'est pas encore configuré pour ce club (aucun compte Stripe actif pour l'instant). Cette page reste fonctionnelle et se connectera automatiquement dès qu'une clé Stripe sera configurée." />
+          )}
+          <ErrorBanner message={error} />
+
+          <Button onClick={handlePay} disabled={paying || !canPay}>
+            {paying ? "Traitement..." : <>Payer ma part et inviter <PriceTag cents={preview.organizerShareCents} currency={preview.currency} /></>}
+          </Button>
+        </>
+      )}
     </div>
   );
 }

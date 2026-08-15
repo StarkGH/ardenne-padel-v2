@@ -214,6 +214,59 @@ describe("SplitCheckoutService — orchestration CDC §26", () => {
     expect(emailSender.shareUrls).toHaveLength(3); // une invitation par participant restant
   });
 
+  it("previews the shares and fee without any side effect (CDC §24.5, §54 écran 23)", async () => {
+    const cfg = { ...config, LEGACY_WRITE_ENABLED: false, SPLIT_SERVICE_FEE_ENABLED: true, SPLIT_SERVICE_FEE_CENTS: 100, SPLIT_SERVICE_FEE_ALLOCATION: "ORGANIZER" as const };
+    const legacy = new FakeLegacyProvider();
+    const payment = new FakePaymentProvider();
+    const emailSender = new CapturingEmailSender();
+    const { bookingsService, splitCheckoutService, shareService, bookingsRepo } = buildServices(cfg, legacy, payment, emailSender);
+
+    const booking = await createSplitBookingWith3Participants(bookingsService, 9, ["p1@example.com", "p2@example.com", "p3@example.com"]);
+
+    const preview = await splitCheckoutService.previewShares(booking.id, organizerUserId);
+    expect(preview.shareCount).toBe(4);
+    expect(preview.organizerShareCents).toBe(1300);
+    expect(preview.guaranteedCents).toBe(3600);
+    expect(preview.shares).toHaveLength(4);
+
+    // Aucun effet de bord : ni claim, ni parts créées, ni e-mail envoyé.
+    const untouched = await bookingsRepo.findById(booking.id);
+    expect(untouched!.status).toBe("CHECKOUT_PENDING");
+    expect(await shareService.listForBooking(booking.id)).toHaveLength(0);
+    expect(emailSender.shareUrls).toHaveLength(0);
+  });
+
+  it("rejects previewing shares for someone other than the organizer", async () => {
+    const cfg = { ...config, LEGACY_WRITE_ENABLED: false };
+    const legacy = new FakeLegacyProvider();
+    const payment = new FakePaymentProvider();
+    const emailSender = new CapturingEmailSender();
+    const { bookingsService, splitCheckoutService } = buildServices(cfg, legacy, payment, emailSender);
+
+    const booking = await createSplitBookingWith3Participants(bookingsService, 9, ["p1@example.com", "p2@example.com", "p3@example.com"]);
+
+    await expect(splitCheckoutService.previewShares(booking.id, participant1Id)).rejects.toMatchObject({ httpStatus: 403 });
+  });
+
+  it("lists shares for the organizer after checkout, rejecting a non-organizer", async () => {
+    const cfg = { ...config, LEGACY_WRITE_ENABLED: false, SPLIT_SERVICE_FEE_ENABLED: false };
+    const legacy = new FakeLegacyProvider();
+    const payment = new FakePaymentProvider();
+    const emailSender = new CapturingEmailSender();
+    const { bookingsService, splitCheckoutService, shareService, walletService } = buildServices(cfg, legacy, payment, emailSender);
+
+    const wallet = await walletService.ensureAccount(organizerUserId);
+    await walletService.creditFromPackPurchase({ walletAccountId: wallet.id, creditPackPurchaseId: "seed", paidCreditsCents: 10000, bonusCreditsCents: 0 });
+    const booking = await createSplitBookingWith3Participants(bookingsService, 10, ["p1@example.com", "p2@example.com", "p3@example.com"]);
+    await splitCheckoutService.checkout({ bookingId: booking.id, userId: organizerUserId, paymentMethodId: "pm_card_visa", guaranteeType: "WALLET_RESERVE" });
+
+    const shares = await shareService.listSharesForOrganizer(booking.id, organizerUserId);
+    expect(shares).toHaveLength(4);
+    expect(shares[0]!.status).toBe("PAID");
+
+    await expect(shareService.listSharesForOrganizer(booking.id, participant1Id)).rejects.toMatchObject({ httpStatus: 403 });
+  });
+
   it("releases the wallet guarantee proportionally as a participant pays their own share via the invitation link", async () => {
     const cfg = { ...config, LEGACY_WRITE_ENABLED: false, SPLIT_SERVICE_FEE_ENABLED: false };
     const legacy = new FakeLegacyProvider();

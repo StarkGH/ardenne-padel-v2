@@ -6,16 +6,23 @@ import { DateTime } from "luxon";
 import { api, ApiError } from "@/lib/api";
 import { useSession } from "@/lib/session-context";
 import { combineDateAndTimeToIso, formatDayLabel, nextNDays } from "@/lib/datetime";
-import { Button, Card, ErrorBanner, PriceTag, Spinner } from "@/components/ui";
-import type { AvailabilitySlot, Court, CourtType, PricingQuote } from "@/lib/types";
+import { Button, Card, ErrorBanner, PriceTag, Spinner, TextInput } from "@/components/ui";
+import type { AvailabilitySlot, Court, CourtType, PaymentMode, PricingQuote } from "@/lib/types";
 
 const DRAFT_KEY = "adp:booking-draft";
+
+interface ParticipantDraft {
+  displayName: string;
+  invitedEmail: string;
+}
 
 interface BookingDraft {
   courtId: string;
   dateISO: string;
   startTime: string;
   durationMinutes: number;
+  paymentMode: PaymentMode;
+  participants: ParticipantDraft[];
 }
 
 function loadDraft(): BookingDraft | null {
@@ -33,7 +40,7 @@ function clearDraft() {
   sessionStorage.removeItem(DRAFT_KEY);
 }
 
-// CDC §54 écrans 2-4, 7 — choix simple/double, calendrier, durée, récapitulatif.
+// CDC §54 écrans 2-4, 6-8, 7 — choix simple/double, calendrier, durée, mode de paiement, participants, récapitulatif.
 export default function BookPage() {
   const { user, loading: sessionLoading } = useSession();
   const router = useRouter();
@@ -46,6 +53,8 @@ export default function BookPage() {
   const [availability, setAvailability] = useState<AvailabilitySlot[]>([]);
   const [startTime, setStartTime] = useState<string | null>(null);
   const [durationMinutes, setDurationMinutes] = useState<number | null>(null);
+  const [paymentMode, setPaymentMode] = useState<PaymentMode | null>(null);
+  const [participants, setParticipants] = useState<ParticipantDraft[]>([]);
   const [quote, setQuote] = useState<PricingQuote | null>(null);
   const [loadingAvailability, setLoadingAvailability] = useState(false);
   const [loadingQuote, setLoadingQuote] = useState(false);
@@ -66,6 +75,8 @@ export default function BookPage() {
       setDateISO(draft.dateISO);
       setStartTime(draft.startTime);
       setDurationMinutes(draft.durationMinutes);
+      setPaymentMode(draft.paymentMode ?? null);
+      setParticipants(draft.participants ?? []);
     }
     setRestored(true);
   }, []);
@@ -108,15 +119,32 @@ export default function BookPage() {
   }, [courtId, dateISO, startTime, durationMinutes]);
 
   useEffect(() => {
-    if (courtId) saveDraft({ courtId, dateISO, startTime: startTime ?? undefined, durationMinutes: durationMinutes ?? undefined });
-  }, [courtId, dateISO, startTime, durationMinutes]);
+    if (courtId) {
+      saveDraft({
+        courtId,
+        dateISO,
+        startTime: startTime ?? undefined,
+        durationMinutes: durationMinutes ?? undefined,
+        paymentMode: paymentMode ?? undefined,
+        participants,
+      });
+    }
+  }, [courtId, dateISO, startTime, durationMinutes, paymentMode, participants]);
 
   const courtsOfType = courts.filter((c) => c.courtType === courtType);
   const selectedCourt = courts.find((c) => c.id === courtId) ?? null;
   const selectedSlot = availability.find((s) => s.startTime === startTime) ?? null;
+  const maxParticipants = (selectedCourt?.capacity ?? 4) - 1;
+  const canAddParticipant = participants.length < maxParticipants;
+  const splitReady = paymentMode === "FULL" || (paymentMode === "SPLIT" && participants.length >= 1 && participants.every((p) => p.displayName && p.invitedEmail));
+  const readyForRecap = Boolean(durationMinutes && paymentMode && splitReady);
+
+  function updateParticipant(index: number, patch: Partial<ParticipantDraft>) {
+    setParticipants((current) => current.map((p, i) => (i === index ? { ...p, ...patch } : p)));
+  }
 
   async function handleConfirm() {
-    if (!courtId || !startTime || !durationMinutes) return;
+    if (!courtId || !startTime || !durationMinutes || !paymentMode) return;
     if (!user) {
       router.push("/login?next=/book");
       return;
@@ -125,7 +153,17 @@ export default function BookPage() {
     setError(null);
     try {
       const startAtIso = combineDateAndTimeToIso(dateISO, startTime);
-      const booking = await api.post<{ id: string }>("/bookings", { courtId, startAt: startAtIso, durationMinutes });
+      const booking = await api.post<{ id: string }>("/bookings", { courtId, startAt: startAtIso, durationMinutes, paymentMode });
+
+      if (paymentMode === "SPLIT") {
+        for (const participant of participants) {
+          await api.post(`/bookings/${booking.id}/participants`, {
+            displayName: participant.displayName,
+            invitedEmail: participant.invitedEmail,
+          });
+        }
+      }
+
       clearDraft();
       router.push(`/checkout/${booking.id}`);
     } catch (err) {
@@ -250,6 +288,71 @@ export default function BookPage() {
       )}
 
       {durationMinutes && (
+        <section>
+          <h2 className="mb-2 text-sm font-semibold text-slate-500">6. Mode de paiement</h2>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={() => setPaymentMode("FULL")}
+              className={`min-h-11 rounded-xl border-2 px-3 py-3 text-left text-sm font-medium ${
+                paymentMode === "FULL" ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+              }`}
+            >
+              Paiement complet
+              <span className="mt-0.5 block text-xs font-normal text-slate-500">Vous réglez la totalité</span>
+            </button>
+            <button
+              onClick={() => setPaymentMode("SPLIT")}
+              className={`min-h-11 rounded-xl border-2 px-3 py-3 text-left text-sm font-medium ${
+                paymentMode === "SPLIT" ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+              }`}
+            >
+              Paiement par participant
+              <span className="mt-0.5 block text-xs font-normal text-slate-500">Chacun paie sa part</span>
+            </button>
+          </div>
+        </section>
+      )}
+
+      {paymentMode === "SPLIT" && (
+        <section>
+          <h2 className="mb-2 text-sm font-semibold text-slate-500">
+            7. Participants <span className="font-normal text-slate-400">({participants.length}/{maxParticipants})</span>
+          </h2>
+          <div className="flex flex-col gap-3">
+            {participants.map((p, i) => (
+              <Card key={i} className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-500">Participant {i + 1}</span>
+                  <button onClick={() => setParticipants((cur) => cur.filter((_, idx) => idx !== i))} className="text-xs text-red-600">
+                    Retirer
+                  </button>
+                </div>
+                <TextInput
+                  placeholder="Nom"
+                  value={p.displayName}
+                  onChange={(e) => updateParticipant(i, { displayName: e.target.value })}
+                />
+                <TextInput
+                  placeholder="E-mail"
+                  type="email"
+                  value={p.invitedEmail}
+                  onChange={(e) => updateParticipant(i, { invitedEmail: e.target.value })}
+                />
+              </Card>
+            ))}
+            {canAddParticipant && (
+              <Button variant="secondary" onClick={() => setParticipants((cur) => [...cur, { displayName: "", invitedEmail: "" }])}>
+                + Ajouter un participant
+              </Button>
+            )}
+            {participants.length === 0 && (
+              <p className="text-xs text-slate-500">Ajoutez au moins un participant pour activer le paiement partagé.</p>
+            )}
+          </div>
+        </section>
+      )}
+
+      {readyForRecap && (
         <Card className="flex flex-col gap-3">
           <h2 className="text-sm font-semibold text-slate-500">Récapitulatif</h2>
           <dl className="grid grid-cols-2 gap-y-1 text-sm">
@@ -263,7 +366,9 @@ export default function BookPage() {
             <dd className="text-right font-medium">{startTime}</dd>
             <dt className="text-slate-500">Durée</dt>
             <dd className="text-right font-medium">{durationMinutes} min</dd>
-            <dt className="text-slate-500">Prix</dt>
+            <dt className="text-slate-500">Mode</dt>
+            <dd className="text-right font-medium">{paymentMode === "FULL" ? "Paiement complet" : `Partagé (${participants.length + 1} participants)`}</dd>
+            <dt className="text-slate-500">Prix total</dt>
             <dd className="text-right font-medium">
               {loadingQuote && "..."}
               {!loadingQuote && quote && <PriceTag cents={quote.priceTotalCents} currency={quote.currency} />}

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/datetime";
 import { Button, Card, ErrorBanner, PriceTag, Spinner } from "@/components/ui";
-import type { Booking } from "@/lib/types";
+import type { Booking, BookingShare } from "@/lib/types";
 
 interface AccessGrant {
   id: string;
@@ -16,12 +16,23 @@ interface AccessGrant {
   validUntil: string;
 }
 
+const SHARE_STATUS_LABELS: Record<string, string> = {
+  OPEN: "En attente d'invitation",
+  INVITED: "Invité, en attente de paiement",
+  PAYMENT_PENDING: "Paiement en cours",
+  PAID: "Payé",
+  COVERED_BY_ORGANIZER: "Couvert par l'organisateur",
+  CANCELED: "Annulé",
+  REFUNDED: "Remboursé",
+};
+
 // CDC §54 écrans 11, 13, 14 — confirmation + code, détail, annulation.
 export default function BookingDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [access, setAccess] = useState<AccessGrant[]>([]);
+  const [shares, setShares] = useState<BookingShare[]>([]);
   const [loading, setLoading] = useState(true);
   const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +46,12 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
       .then(([b, a]) => {
         setBooking(b);
         setAccess(a);
+        if (b.paymentMode === "SPLIT") {
+          api
+            .get<BookingShare[]>(`/bookings/${id}/shares`)
+            .then(setShares)
+            .catch(() => setShares([]));
+        }
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Réservation introuvable."))
       .finally(() => setLoading(false));
@@ -83,6 +100,23 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
           <PriceTag cents={booking.priceTotalCents} currency={booking.currency} />
         </p>
       </Card>
+
+      {booking.paymentMode === "SPLIT" && shares.length > 0 && (
+        <Card className="flex flex-col gap-2">
+          <h2 className="text-sm font-semibold text-slate-500">Parts des participants</h2>
+          {shares.map((share) => (
+            <div key={share.id} className="flex items-center justify-between text-sm">
+              <span className="text-slate-600">{share.invitedEmail ?? (share.participantUserId ? "Vous" : "Participant")}</span>
+              <span className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">{SHARE_STATUS_LABELS[share.status] ?? share.status}</span>
+                <span className="font-medium">
+                  <PriceTag cents={share.totalAmountCents} />
+                </span>
+              </span>
+            </div>
+          ))}
+        </Card>
+      )}
 
       {access.length > 0 && (
         <Card className="flex flex-col gap-2">

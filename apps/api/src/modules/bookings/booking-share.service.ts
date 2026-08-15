@@ -231,4 +231,14 @@ export class BookingShareService {
   async listForBooking(bookingId: string) {
     return this.repo.findByBookingId(bookingId);
   }
+
+  /** CDC §54 écran 13 — l'organisateur consulte le statut de chaque part de sa réservation SPLIT. */
+  async listSharesForOrganizer(bookingId: string, requestingUserId: string) {
+    const booking = await this.bookingsRepo.findById(bookingId);
+    if (!booking) throw new AppError(ErrorCodes.NOT_FOUND, "Réservation introuvable.", 404);
+    if (booking.organizerUserId !== requestingUserId) {
+      throw new AppError(ErrorCodes.FORBIDDEN, "Accès refusé.", 403);
+    }
+    return this.repo.findByBookingId(bookingId);
+  }
 }

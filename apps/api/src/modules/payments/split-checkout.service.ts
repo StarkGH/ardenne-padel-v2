@@ -53,6 +53,50 @@ export class SplitCheckoutService {
     private readonly notificationService: NotificationService,
   ) {}
 
+  /**
+   * CDC §24.5, §54 écran 23 — aperçu des parts et du frais de service, sans
+   * aucun effet de bord (ni claim, ni paiement), pour affichage avant que
+   * l'organisateur ne valide. Recalcule exactement la même chose que
+   * `checkout()` à partir des mêmes données — jamais dupliqué côté frontend
+   * (CDC §129 : le frontend ne doit pas contenir de logique métier).
+   */
+  async previewShares(bookingId: string, requestingUserId: string) {
+    const booking = await this.bookingsRepo.findById(bookingId);
+    if (!booking) throw new AppError(ErrorCodes.NOT_FOUND, "Réservation introuvable.", 404);
+    if (booking.organizerUserId !== requestingUserId) throw new AppError(ErrorCodes.FORBIDDEN, "Accès refusé.", 403);
+    if (booking.paymentMode !== "SPLIT") {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, "Cette réservation n'est pas en mode paiement partagé.", 409);
+    }
+
+    const court = await this.courtsRepo.findById(booking.courtId);
+    if (!court) throw new Error(`SplitCheckoutService: terrain ${booking.courtId} introuvable`);
+
+    const others = booking.participants.filter((p) => p.status !== "REMOVED");
+    const participantCount = others.length + 1;
+    if (participantCount < 2) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, "Il faut au moins un autre participant pour un paiement partagé.", 422);
+    }
+    if (participantCount > court.capacity) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, "Le nombre de participants dépasse la capacité du terrain.", 422);
+    }
+
+    const serviceFeeCents = this.config.SPLIT_SERVICE_FEE_ENABLED ? this.config.SPLIT_SERVICE_FEE_CENTS : 0;
+    const shares = computeSplitShares({
+      basePriceTotalCents: booking.bookingBasePriceCents,
+      participantCount,
+      serviceFeeCents,
+      allocation: this.config.SPLIT_SERVICE_FEE_ALLOCATION,
+    });
+
+    return {
+      shares,
+      organizerShareCents: shares[0]!.totalAmountCents,
+      guaranteedCents: shares.slice(1).reduce((sum, s) => sum + s.totalAmountCents, 0),
+      shareCount: shares.length,
+      currency: booking.currency,
+    };
+  }
+
   async checkout(input: SplitCheckoutInput): Promise<SplitCheckoutResult> {
     const booking = await this.bookingsRepo.findById(input.bookingId);
     if (!booking) throw new AppError(ErrorCodes.NOT_FOUND, "Réservation introuvable.", 404);
