@@ -28,7 +28,7 @@ Estimations données pour une petite équipe (1 à 2 développeurs full-stack + 
 
 ## Lot 1 — Fondations
 
-**Statut : en cours.** Fait : monorepo npm workspaces, `packages/{shared,config,domain}`, Prisma + PostgreSQL, module `identity` complet (register/login/logout/logout-all/verify-email/password reset), RBAC de base (`requireRole`), logs structurés, config typée avec validation au démarrage, 18 tests (unitaires + intégration réelle sur DB) verts, `tsc` strict sans erreur, parcours testé manuellement de bout en bout via l'API démarrée. Restant : pipeline CI (dépend de l'initialisation git — pas encore fait), lint réellement exécuté en continu (config posée, pas encore intégrée à un hook), module `users` distinct (profil au-delà de `/auth/me` — actuellement fusionné dans `identity`, à séparer si besoin au moment du Lot 3).
+**Statut : fait.** Fait : monorepo npm workspaces, `packages/{shared,config,domain}`, Prisma + PostgreSQL, module `identity` complet (register/login/logout/logout-all/verify-email/password reset), RBAC de base (`requireRole`), logs structurés, config typée avec validation au démarrage, 18 tests (unitaires + intégration réelle sur DB) verts, `tsc` strict sans erreur, parcours testé manuellement de bout en bout via l'API démarrée. Pipeline CI GitHub Actions (`.github/workflows/ci.yml`) en place et vert depuis la publication du repo sur `github.com/StarkGH/ardenne-padel-v2`. Restant : lint réellement exécuté en continu localement (config posée et exécutée en CI, pas encore intégrée à un hook pre-commit), module `users` distinct (profil au-delà de `/auth/me` — actuellement fusionné dans `identity`, à séparer si besoin).
 
 **Objectif.** Poser le socle technique commun à tous les modules futurs.
 
@@ -305,21 +305,26 @@ Le cutover final n'est déclenché qu'après passage complet de la **checklist A
 
 ## Vue d'ensemble
 
-| Lot | Contenu | Durée indicative | Cumul |
-|---|---|---|---|
-| 0 | Dossier de projet | fait | — |
-| 1 | Fondations | 2–3 sem. | 3 sem. |
-| 2 | Legacy adapter | 2–3 sem. | 6 sem. |
-| 3 | Booking core | 3 sem. | 9 sem. |
-| 4 | Payments online/FULL | 3 sem. | 12 sem. |
-| 5 | Wallet/crédits | 2–3 sem. | 15 sem. |
-| 6 | SPLIT | 3 sem. | 18 sem. |
-| 7 | Kiosque/Terminal | 2–3 sem. | 21 sem. |
-| 8 | Access/Notifications | 2 sem. | 23 sem. |
-| 9 | Back-office | 3 sem. | 26 sem. |
-| 10 | Pilot hardening | 2–3 sem. | 29 sem. |
+| Lot | Contenu | Statut |
+|---|---|---|
+| 0 | Dossier de projet | fait |
+| 1 | Fondations | fait |
+| 2 | Legacy adapter | fait (cœur) |
+| 3 | Booking core | fait |
+| 4 | Payments online/FULL | fait (sans clé Stripe réelle) |
+| 5 | Wallet/crédits | fait (sans clé Stripe réelle) |
+| 6 | SPLIT | fait (sans clé Stripe réelle) |
+| 7 | Kiosque/Terminal | fait (QR handoff ; Terminal posé, non câblé) |
+| 8 | Access/Notifications | fait |
+| 9 | Back-office (API) | fait — écrans admin restants |
+| 10 | Pilot hardening (backend) | fait |
+| Frontend 1 | Fondations Next.js + parcours FULL | fait |
+| Frontend 2 | Parcours SPLIT | fait |
+| Frontend 3 | Wallet / crédits prépayés | fait |
+| Frontend 4 | Profil et moyens de paiement | fait |
+| Frontend 5 | Kiosque / QR handoff | fait |
 
-**Soit environ 6 à 7 mois jusqu'à un pilote réel prêt à démarrer**, pour une équipe de 1–2 développeurs, hors durée des phases de migration par cohortes elles-mêmes (qui dépendent du rythme d'adoption, pas du développement).
+**Les 10 lots backend et les 5 lots frontend décrits ci-dessus sont tous committés et testés** (191 tests backend verts en CI, voir chaque section pour le détail de ce qui reste par lot). Ce qui bloque encore un vrai pilote : un compte Stripe réel pour Ardenne Padel (aucun parcours de paiement n'a été validé en conditions réelles, tout se dégrade proprement en 503), les 25 écrans admin (frontend, aucune API manquante), et les validations juridiques/comptables V-018 à V-024 (frais SPLIT, TVA crédits — hors code).
 
 ## Ce qui ne doit pas être développé maintenant (rappel §4)
 
@@ -327,8 +332,8 @@ Réseau social complet, messagerie instantanée, marketplace, moteur de recomman
 
 ## Prochaines actions immédiates
 
-1. Valider ce plan et l'affectation des ressources (combien de développeurs, sur quelle période).
-2. Décider du framework backend précis (Node.js + quel framework structuré) et confirmer Next.js pour le frontend — trancher dans `docs/adr/0001-monolithe-modulaire.md`.
-3. Démarrer le Lot 1 : initialiser le monorepo, `docker-compose`, migrations, module `identity`.
-4. En parallèle, lancer les tests de caractérisation sur `padel-service/` (Lot 2) pendant que le Lot 1 avance — ces deux lots ne sont pas strictement séquentiels.
-5. Ouvrir un accès Stripe test et confirmer les moyens de paiement locaux réellement disponibles pour le compte Ardenne Padel (prérequis Lot 4).
+1. **Ouvrir un compte Stripe réel pour Ardenne Padel** (test puis live) et confirmer les moyens de paiement locaux disponibles — bloque la validation en conditions réelles de tous les parcours de paiement (FULL, SPLIT, wallet, Terminal) déjà développés mais jamais exercés avec de vraies clés (V-011 à V-017).
+2. Construire les 25 écrans admin du CDC §55 (Lot 9) — aucune API manquante côté backend, uniquement du frontend restant.
+3. Compléter les écrans client/kiosque secondaires listés en "Restant" dans les sections Frontend Lot 1 à 5 (paiement pack de crédits, gestion des participants post-création, écran de recharge kiosque dédié, etc.).
+4. Trancher les points juridiques/comptables en attente (V-018 à V-024 : TVA sur les crédits, wording du frais SPLIT à faire valider pour ne jamais être assimilé à une surcharge carte interdite en Belgique) — n'a pas bloqué le développement (CDC §100) mais bloque l'activation commerciale.
+5. Une fois Stripe configuré et les écrans admin disponibles : lancer la Phase 1 (interne) de la migration par cohortes décrite dans `docs/migration.md`, en suivant la checklist Annexe B/C avant tout cutover.
