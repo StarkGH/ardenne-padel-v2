@@ -307,6 +307,12 @@ Estimations données pour une petite équipe (1 à 2 développeurs full-stack + 
 
 ---
 
+## Frontend Lot 8 — Écrans client/kiosque secondaires
+
+**Statut : fait et vérifié en direct dans un vrai navigateur.** Complète les deux derniers gaps "écran manquant" listés en Restant des Lots 1-5 (aucune API manquante côté backend pour l'un ou l'autre) : gestion des participants après création de la réservation (ADR-0020 §3) et écran de recharge kiosque dédié (écran 8, CDC §54.1, ADR-0023). `SplitCheckout` (`/checkout/[bookingId]`) porte désormais sa propre section "Participants" — ajout/retrait via `POST/DELETE /bookings/:id/participants` (existants depuis le Lot 3, jamais appelés après `/book`), avec rechargement de la réservation *et* de l'aperçu de répartition à chaque changement, puisque le prix par part en dépend directement ; choix délibéré de ne pas construire un écran séparé, la fenêtre de modification (`DRAFT`/`CHECKOUT_PENDING`) coïncidant exactement avec l'écran de checkout. `/kiosk/credits` (nouveau) et `/wallet/packs` partagent désormais le même composant `CreditPacksPurchase` (`apps/web/src/components/credit-packs-purchase.tsx`), paramétré par titre/destinations plutôt que dupliqué — un lien "Acheter ou recharger des crédits" a été ajouté à l'accueil kiosque, au même niveau que la sélection de réservation (l'écran 8 n'est pas rattaché à une réservation). Vérifié en direct : réservation SPLIT créée avec 1 participant, un deuxième ajouté depuis le checkout (répartition recalculée en direct de 24,00 €/24,00 € à 16,00 €/16,00 €/16,00 € pour 3 personnes), puis retiré (répartition revenue à 24,00 €/24,00 €) ; écran kiosque credits atteint depuis l'accueil, packs réels affichés, achat dégradé proprement (`STRIPE_NOT_CONFIGURED`) ; `/wallet/packs` revérifié fonctionnel après le refactor. ADR-0026 actée. Aucun ajout backend, build/lint/tests inchangés (206 tests verts). Restant : changement d'e-mail toujours non traité (capacité backend manquante, pas un écran — hors périmètre de ce lot) ; pas de message explicite quand la capacité du terrain limite l'ajout de participants (le bouton disparaît sans explication) ; pas de déduplication d'e-mail entre participants.
+
+---
+
 ## Après le Lot 10 — Migration par cohortes et cutover
 
 Suivre `docs/migration.md` : Phase 1 (interne) → Phase 2 (pilote) → Phase 3 (extension) → Phase 4 (généralisation) → Phase 5 (cutover) → Phase 6 (extinction), chacune gouvernée par les critères du CDC §51 et non par une simple impression de stabilité.
@@ -336,7 +342,7 @@ Le cutover final n'est déclenché qu'après passage complet de la **checklist A
 | Frontend 4 | Profil et moyens de paiement | fait |
 | Frontend 5 | Kiosque / QR handoff | fait |
 
-**Les 10 lots backend et les 5 lots frontend décrits ci-dessus sont tous committés et testés** (191 tests backend verts en CI, voir chaque section pour le détail de ce qui reste par lot). Ce qui bloque encore un vrai pilote : un compte Stripe réel pour Ardenne Padel (aucun parcours de paiement n'a été validé en conditions réelles, tout se dégrade proprement en 503), les 25 écrans admin (frontend, aucune API manquante), et les validations juridiques/comptables V-018 à V-024 (frais SPLIT, TVA crédits — hors code).
+**Les 10 lots backend et les 8 lots frontend décrits ci-dessus sont tous committés et testés** (206 tests backend verts en CI, voir chaque section pour le détail de ce qui reste par lot). Les 25 écrans admin et les écrans client/kiosque secondaires sont désormais construits. Ce qui bloque encore un vrai pilote : un compte Stripe réel pour Ardenne Padel (aucun parcours de paiement n'a été validé en conditions réelles, tout se dégrade proprement en 503, à l'exception des paiements 100 % wallet — réellement aboutis en direct), et les validations juridiques/comptables V-018 à V-024 (frais SPLIT, TVA crédits — hors code).
 
 ## Ce qui ne doit pas être développé maintenant (rappel §4)
 
@@ -345,7 +351,7 @@ Réseau social complet, messagerie instantanée, marketplace, moteur de recomman
 ## Prochaines actions immédiates
 
 1. **Ouvrir un compte Stripe réel pour Ardenne Padel** (test puis live) et confirmer les moyens de paiement locaux disponibles — bloque la validation en conditions réelles de tous les parcours de paiement (FULL, SPLIT, wallet, Terminal) déjà développés mais jamais exercés avec de vraies clés (V-011 à V-017).
-2. Construire les 25 écrans admin du CDC §55 (Lot 9) — aucune API manquante côté backend, uniquement du frontend restant.
-3. Compléter les écrans client/kiosque secondaires listés en "Restant" dans les sections Frontend Lot 1 à 5 (paiement pack de crédits, gestion des participants post-création, écran de recharge kiosque dédié, etc.).
+2. ~~Construire les 25 écrans admin du CDC §55~~ — fait (Frontend Lots 6-7, ADR-0024/0025).
+3. ~~Compléter les écrans client/kiosque secondaires~~ — fait (Frontend Lot 8, ADR-0026). Reste le changement d'e-mail (capacité backend manquante, pas un écran).
 4. Trancher les points juridiques/comptables en attente (V-018 à V-024 : TVA sur les crédits, wording du frais SPLIT à faire valider pour ne jamais être assimilé à une surcharge carte interdite en Belgique) — n'a pas bloqué le développement (CDC §100) mais bloque l'activation commerciale.
-5. Une fois Stripe configuré et les écrans admin disponibles : lancer la Phase 1 (interne) de la migration par cohortes décrite dans `docs/migration.md`, en suivant la checklist Annexe B/C avant tout cutover.
+5. Une fois Stripe configuré : lancer la Phase 1 (interne) de la migration par cohortes décrite dans `docs/migration.md`, en suivant la checklist Annexe B/C avant tout cutover.

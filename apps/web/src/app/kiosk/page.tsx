@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DateTime } from "luxon";
 import { api } from "@/lib/api";
@@ -96,6 +97,10 @@ export default function KioskHomePage() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-bold">Réserver au club</h1>
+
+      <Link href="/kiosk/credits">
+        <Button variant="secondary">Acheter ou recharger des crédits</Button>
+      </Link>
 
       <section>
         <h2 className="mb-2 text-sm font-semibold text-slate-500">1. Type de terrain</h2>

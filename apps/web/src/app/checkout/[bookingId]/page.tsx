@@ -4,8 +4,8 @@ import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/datetime";
-import { Button, Card, ErrorBanner, InfoBanner, PriceTag, Spinner } from "@/components/ui";
-import type { Booking, CheckoutResult, GuaranteeType, SplitCheckoutResult, SplitPreview, WalletBalance } from "@/lib/types";
+import { Button, Card, ErrorBanner, InfoBanner, PriceTag, Spinner, TextInput } from "@/components/ui";
+import type { Booking, BookingParticipant, CheckoutResult, GuaranteeType, SplitCheckoutResult, SplitPreview, WalletBalance } from "@/lib/types";
 
 // CDC §54 écrans 8-11 — mode de paiement, moyen de paiement, paiement, confirmation.
 export default function CheckoutPage({ params }: { params: Promise<{ bookingId: string }> }) {
@@ -159,13 +159,67 @@ function SplitCheckout({ booking }: { booking: Booking }) {
   const [error, setError] = useState<string | null>(null);
   const [unconfigured, setUnconfigured] = useState(false);
 
-  useEffect(() => {
+  const [participants, setParticipants] = useState<BookingParticipant[]>(booking.participants ?? []);
+  const [newName, setNewName] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [savingParticipant, setSavingParticipant] = useState(false);
+  const [participantError, setParticipantError] = useState<string | null>(null);
+
+  const activeParticipants = participants.filter((p) => p.status !== "REMOVED");
+  const maxParticipants = (booking.court?.capacity ?? 4) - 1;
+  const canAddParticipant = activeParticipants.length < maxParticipants;
+
+  function reloadPreview() {
+    setLoadingPreview(true);
     api
       .get<SplitPreview>(`/bookings/${booking.id}/split-preview`)
       .then(setPreview)
       .catch((err) => setError(err instanceof ApiError ? err.message : "Impossible de calculer les parts."))
       .finally(() => setLoadingPreview(false));
-  }, [booking.id]);
+  }
+
+  useEffect(reloadPreview, [booking.id]);
+
+  // CDC §54 écran 6 — gestion des participants après création de la
+  // réservation (tant qu'elle reste CHECKOUT_PENDING) : le brouillon de
+  // /book ne couvre que l'ajout avant paiement, jamais la correction d'une
+  // réservation déjà créée (ADR-0020 §3). Recharge aussi l'aperçu de
+  // répartition, dont le calcul dépend directement du nombre de participants.
+  async function reloadParticipants() {
+    try {
+      const fresh = await api.get<Booking>(`/bookings/${booking.id}`);
+      setParticipants(fresh.participants ?? []);
+    } catch {
+      // best-effort — la liste locale reste affichée telle quelle si le rechargement échoue.
+    }
+    reloadPreview();
+  }
+
+  async function handleAddParticipant() {
+    if (!newName.trim() || !newEmail.trim()) return;
+    setSavingParticipant(true);
+    setParticipantError(null);
+    try {
+      await api.post(`/bookings/${booking.id}/participants`, { displayName: newName, invitedEmail: newEmail });
+      setNewName("");
+      setNewEmail("");
+      await reloadParticipants();
+    } catch (err) {
+      setParticipantError(err instanceof ApiError ? err.message : "Impossible d'ajouter ce participant.");
+    } finally {
+      setSavingParticipant(false);
+    }
+  }
+
+  async function handleRemoveParticipant(participantId: string) {
+    setParticipantError(null);
+    try {
+      await api.delete(`/bookings/${booking.id}/participants/${participantId}`);
+      await reloadParticipants();
+    } catch (err) {
+      setParticipantError(err instanceof ApiError ? err.message : "Impossible de retirer ce participant.");
+    }
+  }
 
   const requiresConsent = guaranteeType === "CARD_OFF_SESSION";
   const canPay = !requiresConsent || consent;
@@ -205,6 +259,40 @@ function SplitCheckout({ booking }: { booking: Booking }) {
           <PriceTag cents={booking.priceTotalCents} currency={booking.currency} />
         </p>
       </Card>
+
+      <section>
+        <h2 className="mb-2 text-sm font-semibold text-slate-500">
+          Participants <span className="font-normal text-slate-400">({activeParticipants.length}/{maxParticipants})</span>
+        </h2>
+        <div className="flex flex-col gap-3">
+          {activeParticipants.map((p) => (
+            <Card key={p.id} className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">{p.displayName}</p>
+                <p className="text-xs text-slate-500">{p.invitedEmail}</p>
+              </div>
+              <button onClick={() => handleRemoveParticipant(p.id)} className="text-xs text-red-600">
+                Retirer
+              </button>
+            </Card>
+          ))}
+          {activeParticipants.length === 0 && <p className="text-xs text-slate-500">Aucun participant pour l&apos;instant.</p>}
+          {canAddParticipant && (
+            <Card className="flex flex-col gap-2">
+              <TextInput placeholder="Nom" value={newName} onChange={(e) => setNewName(e.target.value)} />
+              <TextInput placeholder="E-mail" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+              <Button
+                variant="secondary"
+                onClick={handleAddParticipant}
+                disabled={savingParticipant || !newName.trim() || !newEmail.trim()}
+              >
+                {savingParticipant ? "..." : "+ Ajouter un participant"}
+              </Button>
+            </Card>
+          )}
+          <ErrorBanner message={participantError} />
+        </div>
+      </section>
 
       {loadingPreview && <Spinner />}
 
