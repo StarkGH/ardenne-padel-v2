@@ -96,6 +96,10 @@ describe("Bookings — parcours HTTP complet (sans Legacy)", () => {
     const d = new Date();
     d.setDate(d.getDate() + ((1 + 7 - d.getDay()) % 7 || 7)); // prochain lundi (toujours dans le futur)
     d.setHours(hour, 0, 0, 0);
+    // Garantit une marge > 24h (échéance d'annulation) quelle que soit l'heure d'exécution du test.
+    if (d.getTime() - Date.now() < 25 * 3600_000) {
+      d.setDate(d.getDate() + 7);
+    }
     return d;
   }
 

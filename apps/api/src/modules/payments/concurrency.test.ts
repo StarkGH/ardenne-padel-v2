@@ -84,6 +84,10 @@ describe("Concurrency (CDC §67)", () => {
     const d = new Date();
     d.setDate(d.getDate() + ((1 + 7 - d.getDay()) % 7 || 7));
     d.setHours(hour, 0, 0, 0);
+    // Garantit une marge > 24h (échéance d'annulation) quelle que soit l'heure d'exécution du test.
+    if (d.getTime() - Date.now() < 25 * 3600_000) {
+      d.setDate(d.getDate() + 7);
+    }
     return d.toISOString();
   }
 
