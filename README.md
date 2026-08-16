@@ -1,5 +1,7 @@
 # Ardenne Padel V2
 
+[![CI](https://github.com/StarkGH/ardenne-padel-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/StarkGH/ardenne-padel-v2/actions/workflows/ci.yml)
+
 Plateforme propriétaire destinée à remplacer progressivement Doinsport pour la gestion des réservations, paiements, wallet et accès du club Ardenne Padel.
 
 **Statut : Lot 0 — dossier de projet et plan d'action (pas encore de code applicatif).**
