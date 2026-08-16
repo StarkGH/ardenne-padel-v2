@@ -5,6 +5,11 @@ import { resetIntegrationTestData } from "../../testing/reset-db.js";
 import { buildTestAccessGrantService } from "../../testing/build-access-grant-service.js";
 import { buildTestNotificationService } from "../../testing/build-notification-service.js";
 import { BookingsRepository } from "../bookings/bookings.repository.js";
+import { BookingsService } from "../bookings/bookings.service.js";
+import { CourtsRepository } from "../courts/courts.repository.js";
+import { PricingRepository } from "../pricing/pricing.repository.js";
+import { PricingService } from "../pricing/pricing.service.js";
+import { IdentityRepository } from "../identity/identity.repository.js";
 import { FakeLegacyProvider } from "../legacy-doinsport/testing/fake-legacy-provider.js";
 import { AuditLogRepository } from "./audit-log.repository.js";
 import { AuditLogService } from "./audit-log.service.js";
@@ -29,10 +34,28 @@ describe("BookingsAdminService", () => {
       create: { slug: "test-padel-bookings-admin", name: "Test Padel Bookings Admin", courtType: "DOUBLE", capacity: 4, displayOrder: 94 },
     });
     courtId = court.id;
+
+    await prisma.tariffRule.deleteMany({ where: { courtId } });
+    await prisma.tariffRule.create({
+      data: {
+        name: "Tarif test bookings-admin",
+        courtId,
+        validFrom: new Date("2020-01-01"),
+        daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+        startTime: "00:00",
+        endTime: "23:59",
+        durationMinutes: 60,
+        priceTotalCents: 4800,
+        referenceCapacity: 4,
+        priority: 10,
+        tags: [],
+      },
+    });
   });
 
   afterAll(async () => {
     await resetIntegrationTestData(prisma);
+    await prisma.tariffRule.deleteMany({ where: { courtId } });
     await prisma.court.delete({ where: { id: courtId } });
     await prisma.$disconnect();
   });
@@ -50,13 +73,26 @@ describe("BookingsAdminService", () => {
   });
 
   function buildService(config = loadConfig()) {
+    const bookingsRepo = new BookingsRepository(prisma);
+    const legacy = new FakeLegacyProvider();
+    const bookingsService = new BookingsService(
+      bookingsRepo,
+      new CourtsRepository(prisma),
+      new PricingService(new PricingRepository(prisma)),
+      legacy,
+      config,
+      buildTestAccessGrantService(prisma, config),
+      buildTestNotificationService(prisma),
+    );
     return new BookingsAdminService(
-      new BookingsRepository(prisma),
-      new FakeLegacyProvider(),
+      bookingsRepo,
+      legacy,
       config,
       buildTestAccessGrantService(prisma, config),
       buildTestNotificationService(prisma),
       new AuditLogService(new AuditLogRepository(prisma)),
+      bookingsService,
+      new IdentityRepository(prisma),
     );
   }
 
@@ -139,5 +175,48 @@ describe("BookingsAdminService", () => {
     const booking = await createConfirmedBooking();
     const service = buildService();
     await expect(service.forceResync(booking.id, actorUserId)).rejects.toMatchObject({ httpStatus: 409 });
+  });
+
+  it("gets a booking by id with the organizer's identity attached, regardless of who's asking (CDC §55 écran 4)", async () => {
+    const booking = await createConfirmedBooking();
+    const service = buildService();
+
+    const result = await service.getById(booking.id);
+    expect(result.id).toBe(booking.id);
+    expect(result.organizer).toMatchObject({ id: organizerUserId, firstName: "O", lastName: "R" });
+  });
+
+  it("rejects getById for an unknown booking", async () => {
+    const service = buildService();
+    await expect(service.getById("00000000-0000-0000-0000-000000000000")).rejects.toMatchObject({ httpStatus: 404 });
+  });
+
+  it("creates a booking on behalf of an existing customer, source ADMIN, audited (CDC §55 écran 5)", async () => {
+    const service = buildService();
+    const startAt = new Date(Date.now() + 48 * 3600_000).toISOString();
+
+    const booking = await service.adminCreate(
+      { organizerUserId, courtId, startAt, durationMinutes: 60 },
+      actorUserId,
+    );
+
+    expect(booking.organizerUserId).toBe(organizerUserId);
+    expect(booking.source).toBe("ADMIN");
+    expect(booking.status).toBe("CHECKOUT_PENDING");
+
+    const auditRepo = new AuditLogRepository(prisma);
+    const entries = await auditRepo.listRecent({ targetType: "Booking", targetId: booking.id });
+    expect(entries.some((e) => e.action === "BOOKING_ADMIN_CREATED")).toBe(true);
+  });
+
+  it("rejects creating a booking for an unknown customer", async () => {
+    const service = buildService();
+    const startAt = new Date(Date.now() + 48 * 3600_000).toISOString();
+    await expect(
+      service.adminCreate(
+        { organizerUserId: "00000000-0000-0000-0000-000000000000", courtId, startAt, durationMinutes: 60 },
+        actorUserId,
+      ),
+    ).rejects.toMatchObject({ httpStatus: 404 });
   });
 });

@@ -11,6 +11,13 @@ const dashboardQuerySchema = z.object({
 
 const cancelSchema = z.object({ reason: z.string().min(1).max(500) });
 const resyncSchema = z.object({ reason: z.string().max(500).optional() });
+const createBookingSchema = z.object({
+  organizerUserId: z.string().uuid(),
+  courtId: z.string().uuid(),
+  startAt: z.string().datetime({ offset: true }),
+  durationMinutes: z.coerce.number().int().positive(),
+  paymentMode: z.enum(["FULL", "SPLIT"]).optional(),
+});
 
 function parseOrThrow<T>(schema: z.ZodType<T>, data: unknown): T {
   const parsed = schema.safeParse(data);
@@ -30,6 +37,24 @@ export function createBookingsAdminRouter(service: BookingsAdminService): Router
     try {
       const { from, to } = parseOrThrow(dashboardQuerySchema, req.query);
       res.status(200).json({ data: await service.listForDashboard(from, to) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get("/admin/bookings/:id", requireAuth, requireRole("STAFF"), async (req, res, next) => {
+    try {
+      res.status(200).json({ data: await service.getById(req.params.id!) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post("/admin/bookings", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
+    try {
+      const input = parseOrThrow(createBookingSchema, req.body);
+      const booking = await service.adminCreate(input, req.authUser!.id);
+      res.status(201).json({ data: booking });
     } catch (err) {
       next(err);
     }

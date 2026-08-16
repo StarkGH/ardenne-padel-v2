@@ -1,10 +1,20 @@
 import { AppError, ErrorCodes, logger } from "@ardenne/shared";
 import type { AppConfig } from "@ardenne/config";
 import type { BookingsRepository } from "../bookings/bookings.repository.js";
+import type { BookingsService } from "../bookings/bookings.service.js";
+import type { IdentityRepository } from "../identity/identity.repository.js";
 import type { LegacyBookingProvider } from "../legacy-doinsport/types.js";
 import type { AccessGrantService } from "../access/access-grant.service.js";
 import type { NotificationService } from "../notifications/notification.service.js";
 import type { AuditLogService } from "./audit-log.service.js";
+
+export interface AdminCreateBookingInput {
+  organizerUserId: string;
+  courtId: string;
+  startAt: string;
+  durationMinutes: number;
+  paymentMode?: "FULL" | "SPLIT";
+}
 
 /**
  * CDC §39.1-§39.2 — vue planning multi-terrains et actions rapides admin
@@ -21,10 +31,54 @@ export class BookingsAdminService {
     private readonly accessGrantService: AccessGrantService,
     private readonly notificationService: NotificationService,
     private readonly auditLog: AuditLogService,
+    private readonly bookingsService: BookingsService,
+    private readonly identityRepo: IdentityRepository,
   ) {}
 
   async listForDashboard(fromISO: string, toISO: string) {
     return this.repo.listInRange(new Date(fromISO), new Date(toISO));
+  }
+
+  /** CDC §55 écran 4 — pas de garde organisateur/date ici, réservé STAFF+ (contrairement à `GET /bookings/:id` côté client). */
+  async getById(bookingId: string) {
+    const booking = await this.repo.findById(bookingId);
+    if (!booking) throw new AppError(ErrorCodes.NOT_FOUND, "Réservation introuvable.", 404);
+    const organizer = await this.identityRepo.findUserById(booking.organizerUserId);
+    return {
+      ...booking,
+      organizer: organizer ? { id: organizer.id, firstName: organizer.firstName, lastName: organizer.lastName, email: organizer.email } : null,
+    };
+  }
+
+  /**
+   * CDC §55 écran 5 — réservation téléphone/guichet pour un client existant.
+   * Réutilise `BookingsService.createBooking` (même moteur que le client,
+   * `source: "ADMIN"` déjà prévu au schéma) plutôt que de dupliquer la
+   * logique de tarification/état — seule la provenance change.
+   */
+  async adminCreate(input: AdminCreateBookingInput, actorUserId: string) {
+    const organizer = await this.identityRepo.findUserById(input.organizerUserId);
+    if (!organizer) throw new AppError(ErrorCodes.NOT_FOUND, "Client introuvable.", 404);
+
+    const booking = await this.bookingsService.createBooking({
+      organizerUserId: organizer.id,
+      courtId: input.courtId,
+      startAt: input.startAt,
+      durationMinutes: input.durationMinutes,
+      paymentMode: input.paymentMode,
+      source: "ADMIN",
+      organizerIsPilotUser: organizer.pilotUser,
+    });
+
+    await this.auditLog.record({
+      actorUserId,
+      action: "BOOKING_ADMIN_CREATED",
+      targetType: "Booking",
+      targetId: booking.id,
+      after: { courtId: booking.courtId, startAt: booking.startAt, organizerUserId: booking.organizerUserId },
+    });
+
+    return booking;
   }
 
   /** CDC §39.2 — annulation admin, sans les garde-fous côté client (organisateur/délai). */

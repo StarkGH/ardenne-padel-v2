@@ -272,7 +272,16 @@ export function createApp({
   const crmService = new CrmService(new CrmRepository(prisma), walletRepository, new ClientNoteRepository(prisma), auditLogService, prisma);
   const schedulingAdminService = new SchedulingAdminService(new SchedulingAdminRepository(prisma), auditLogService);
   const creditPackAdminService = new CreditPackAdminService(creditPacksRepository, auditLogService);
-  const bookingsAdminService = new BookingsAdminService(bookingsRepository, legacy, config, accessGrantService, notificationService, auditLogService);
+  const bookingsAdminService = new BookingsAdminService(
+    bookingsRepository,
+    legacy,
+    config,
+    accessGrantService,
+    notificationService,
+    auditLogService,
+    bookingsService,
+    identityRepository,
+  );
   const refundService = new RefundService(paymentsRepository, payments, notificationService);
   const paymentsAdminService = new PaymentsAdminService(refundService, auditLogService);
   const healthIndicatorsService = new HealthIndicatorsService(prisma, config);

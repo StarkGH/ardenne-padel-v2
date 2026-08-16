@@ -31,6 +31,7 @@ export class CrmRepository {
         phone: true,
         role: true,
         status: true,
+        pilotUser: true,
         createdAt: true,
         lastLoginAt: true,
       },

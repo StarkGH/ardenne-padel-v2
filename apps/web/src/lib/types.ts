@@ -45,6 +45,7 @@ export type BookingStatus =
   | "COMPLETED";
 
 export type PaymentMode = "FULL" | "SPLIT";
+export type BookingSource = "WEB" | "PWA" | "ADMIN" | "MIGRATION" | "LEGACY_SYNC";
 
 export type BookingParticipantStatus = "INVITED" | "CONFIRMED" | "REMOVED";
 
@@ -73,6 +74,7 @@ export interface Booking {
   bookingBasePriceCents: number;
   priceTotalCents: number;
   currency: string;
+  source: BookingSource;
   cancellationDeadline: string | null;
   createdAt: string;
   confirmedAt: string | null;
@@ -201,6 +203,148 @@ export interface PaymentMethod {
   last4: string;
   expMonth: number;
   expYear: number;
+}
+
+// --- Admin (CDC §55) ---
+
+export interface LegacyBookingMapping {
+  id: string;
+  bookingId: string;
+  legacyBookingId: string | null;
+  syncStatus: "PENDING" | "SYNCED" | "FAILED" | "CANCEL_PENDING" | "CANCELED";
+  lastSyncAt: string | null;
+  lastError: string | null;
+}
+
+export interface AdminBooking extends Booking {
+  organizer: { id: string; firstName: string; lastName: string; email: string } | null;
+  legacyBookingMapping?: LegacyBookingMapping | null;
+}
+
+export interface ClientSearchResult {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: Role;
+  status: UserStatus;
+  createdAt: string;
+}
+
+export interface ClientProfile {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone: string | null;
+  role: Role;
+  status: UserStatus;
+  pilotUser: boolean;
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+export interface ClientLegacyStatus {
+  origin: "LEGACY_LINKED" | "V2_ONLY";
+  legacyClientId: string | null;
+  migratedAt: string | null;
+}
+
+export interface AdminPayment {
+  id: string;
+  bookingId: string | null;
+  userId: string;
+  provider: string;
+  providerPaymentId: string;
+  paymentChannel: "ONLINE" | "QR_HANDOFF" | "TERMINAL";
+  paymentMethodType: string | null;
+  amountCents: number;
+  currency: string;
+  status: "PENDING" | "AUTHORIZED" | "CAPTURED" | "FAILED" | "CANCELED" | "REFUNDED" | "PARTIALLY_REFUNDED";
+  purpose: string;
+  providerFeeCents: number | null;
+  providerNetCents: number | null;
+  createdAt: string;
+}
+
+export interface AdminRefund {
+  id: string;
+  paymentId: string;
+  providerRefundId: string | null;
+  amountCents: number;
+  fundingSource: "EXTERNAL" | "WALLET";
+  status: "PENDING" | "SUCCEEDED" | "FAILED";
+  reason: string | null;
+  createdAt: string;
+}
+
+export interface AdminCreditPackPurchase {
+  id: string;
+  creditPackId: string;
+  userId: string;
+  purchaseAmountCents: number;
+  paidCreditsCents: number;
+  bonusCreditsCents: number;
+  status: "PENDING" | "COMPLETED" | "FAILED";
+  createdAt: string;
+}
+
+export interface AdminWalletHold {
+  id: string;
+  walletAccountId: string;
+  bookingId: string | null;
+  amountCents: number;
+  status: "ACTIVE" | "RELEASED" | "CAPTURED" | "EXPIRED";
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export interface ClientWallet {
+  walletAccountId: string;
+  balanceTotalCents: number;
+  balanceByOrigin: { PAID: number; BONUS: number; ADMIN_COMP: number };
+  balanceReservedCents: number;
+  balanceAvailableCents: number;
+  activeHolds: AdminWalletHold[];
+}
+
+export interface AdminClientNote {
+  id: string;
+  userId: string;
+  authorUserId: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface ClientFile {
+  profile: ClientProfile;
+  legacyStatus: ClientLegacyStatus;
+  bookings: { future: AdminBooking[]; past: AdminBooking[] };
+  payments: AdminPayment[];
+  refunds: AdminRefund[];
+  creditPackPurchases: AdminCreditPackPurchase[];
+  wallet: ClientWallet | null;
+  notes: AdminClientNote[];
+}
+
+export interface HealthIndicators {
+  lastLegacySyncAt: string | null;
+  legacySyncErrors: number;
+  bookingsManualReview: number;
+  paymentsFailed: number;
+  walletHoldsStale: number;
+  creditPacksPaidNotCredited: number;
+  kioskDevicesOffline: number;
+  terminalDevicesUnavailable: number;
+  accessGrantsFailed: number;
+  notificationsFailed: number;
+}
+
+export interface AlertEntry {
+  code: string;
+  severity: "warning" | "critical";
+  message: string;
+  count: number;
 }
 
 export type KioskSessionStatus = "PENDING" | "CLAIMED" | "COMPLETED" | "EXPIRED" | "CANCELED";
