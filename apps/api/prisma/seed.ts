@@ -1,6 +1,10 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "../src/modules/identity/password.js";
+import { hashToken } from "../src/modules/identity/tokens.js";
+
+/** Clé fixe de dev uniquement — jamais utilisée hors environnement local (CDC §57.1 : une vraie clé de production est générée une seule fois via POST /admin/kiosk-devices et n'est jamais commitée). */
+const DEV_KIOSK_DEVICE_KEY = "dev-kiosk-accueil-do-not-use-in-prod";
 
 /**
  * Seed de développement (CDC §93). Étendu lot par lot : terrains, tarifs,
@@ -184,12 +188,25 @@ async function main() {
     },
   });
 
+  // CDC §54.1 — kiosque de dev, capacités QR handoff + Terminal (clé fixe, jamais en production).
+  await prisma.kioskDevice.upsert({
+    where: { deviceKeyHash: hashToken(DEV_KIOSK_DEVICE_KEY) },
+    update: {},
+    create: {
+      name: "Kiosque accueil (dev)",
+      location: "Club-house",
+      deviceKeyHash: hashToken(DEV_KIOSK_DEVICE_KEY),
+      capabilities: ["QR_HANDOFF", "TERMINAL"],
+    },
+  });
+
   console.log("Seed terminé. Comptes dev (mot de passe: DevPassword123!) :");
   console.log("  - admin@dev.ardenne-padel.local (ADMIN)");
   console.log("  - joueur1@dev.ardenne-padel.local (CUSTOMER)");
   console.log("4 terrains + mapping Legacy créés (Padel 1-4).");
   console.log("Horaires 08:00-22:00, durées 60/90min, tarifs de démonstration créés pour chaque terrain.");
   console.log("2 packs de crédits de démonstration créés.");
+  console.log(`Kiosque dev : clé = ${DEV_KIOSK_DEVICE_KEY}`);
 }
 
 main()

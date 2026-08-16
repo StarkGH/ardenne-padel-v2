@@ -202,3 +202,28 @@ export interface PaymentMethod {
   expMonth: number;
   expYear: number;
 }
+
+export type KioskSessionStatus = "PENDING" | "CLAIMED" | "COMPLETED" | "EXPIRED" | "CANCELED";
+
+export interface KioskCheckoutSessionCreated {
+  id: string;
+  token: string;
+  expiresAt: string;
+}
+
+export interface KioskCheckoutSessionStatus {
+  status: KioskSessionStatus;
+  bookingId?: string;
+  bookingStatus?: BookingStatus | null;
+}
+
+export type KioskCheckoutSessionPreview =
+  | { claimed: true; booking: Booking }
+  | {
+      claimed: false;
+      courtId: string;
+      startAt: string;
+      durationMinutes: number;
+      paymentMode: PaymentMode;
+      status: KioskSessionStatus;
+    };
