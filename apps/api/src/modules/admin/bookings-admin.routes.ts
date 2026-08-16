@@ -42,6 +42,15 @@ export function createBookingsAdminRouter(service: BookingsAdminService): Router
     }
   });
 
+  router.get("/admin/access-grants", requireAuth, requireRole("STAFF"), async (req, res, next) => {
+    try {
+      const { from, to } = parseOrThrow(dashboardQuerySchema, req.query);
+      res.status(200).json({ data: await service.listAccessGrants(from, to) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.get("/admin/bookings/:id", requireAuth, requireRole("STAFF"), async (req, res, next) => {
     try {
       res.status(200).json({ data: await service.getById(req.params.id!) });

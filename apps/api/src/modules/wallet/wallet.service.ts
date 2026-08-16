@@ -94,6 +94,31 @@ export class WalletService {
     });
   }
 
+  /** CDC §55 écran 11 — débit manuel avec motif (erreur de crédit, régularisation), jamais lié à une réservation. */
+  async debitAdmin(input: { walletAccountId: string; amountCents: number; createdBy: string; reason: string }): Promise<void> {
+    assertCents(input.amountCents, "amountCents");
+    if (input.amountCents <= 0) {
+      throw new AppError("VALIDATION_FAILED", "Le montant débité doit être positif.", 422);
+    }
+    const balance = await this.getBalance(input.walletAccountId);
+    if (balance.availableCents < input.amountCents) {
+      throw new InsufficientWalletBalanceError(balance.availableCents, input.amountCents);
+    }
+    const breakdown = this.allocateAcrossOrigins(input.amountCents, balance.byOrigin);
+    const rows = breakdown
+      .filter((b) => b.amountCents > 0)
+      .map((b) => ({
+        id: randomUUID(),
+        walletAccountId: input.walletAccountId,
+        type: "ADJUSTMENT" as const,
+        amountCents: -b.amountCents,
+        creditOrigin: b.origin,
+        createdBy: input.createdBy,
+        reference: input.reason,
+      }));
+    await this.repo.createTransactions(rows);
+  }
+
   /**
    * Débit direct (sans hold), pour un paiement 100% wallet immédiat.
    * Répartit sur les origines disponibles (bonus d'abord) et échoue

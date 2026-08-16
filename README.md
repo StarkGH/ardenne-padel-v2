@@ -4,7 +4,7 @@
 
 Plateforme propriétaire destinée à remplacer progressivement Doinsport pour la gestion des réservations, paiements, wallet et accès du club Ardenne Padel.
 
-**Statut : Lots 0 à 10 (backend), Frontend Lots 1 à 5, et une première tranche de 7 écrans admin (Frontend Lot 6) terminés — 195 tests verts, CI en place.** Reste à construire : 18 écrans admin (configuration/observabilité) et quelques écrans client/kiosque secondaires (aucune API manquante côté backend pour la plupart), puis la migration par cohortes et le cutover Doinsport (voir [`PLAN_ACTION.md`](PLAN_ACTION.md) pour le détail lot par lot et [`docs/migration.md`](docs/migration.md) pour la suite). Aucun compte Stripe réel n'est encore configuré pour Ardenne Padel — les parcours de paiement se dégradent proprement (503) en attendant.
+**Statut : Lots 0 à 10 (backend), Frontend Lots 1 à 5, et les 25 écrans admin (Frontend Lots 6-7) terminés — 206 tests verts, CI en place.** Reste à construire : quelques écrans client/kiosque secondaires (aucune API manquante côté backend pour la plupart), puis la migration par cohortes et le cutover Doinsport (voir [`PLAN_ACTION.md`](PLAN_ACTION.md) pour le détail lot par lot et [`docs/migration.md`](docs/migration.md) pour la suite). Aucun compte Stripe réel n'est encore configuré pour Ardenne Padel — les parcours de paiement se dégradent proprement (503) en attendant.
 
 ## Documents de référence
 

@@ -87,6 +87,11 @@ import { HealthIndicatorsService } from "./modules/admin/health-indicators.servi
 import { createHealthIndicatorsRouter } from "./modules/admin/health-indicators.routes.js";
 import { AlertsService } from "./modules/admin/alerts.service.js";
 import { createAlertsRouter } from "./modules/admin/alerts.routes.js";
+import { WalletAdminService } from "./modules/admin/wallet-admin.service.js";
+import { createWalletAdminRouter } from "./modules/admin/wallet-admin.routes.js";
+import { createTerminalAdminRouter } from "./modules/admin/terminal-admin.routes.js";
+import { createAuditLogRouter } from "./modules/admin/audit-log.routes.js";
+import { createSettingsRouter } from "./modules/admin/settings.routes.js";
 
 export interface AppDependencies {
   prisma: PrismaClient;
@@ -262,13 +267,15 @@ export function createApp({
   const terminalDeviceRepository = new TerminalDeviceRepository(prisma);
   const terminal = terminalProvider ?? (config.STRIPE_SECRET_KEY ? new StripeTerminalProvider(stripe) : new UnconfiguredTerminalProvider());
 
-  app.use("/api/v1", createKioskRouter(kioskDeviceService, kioskCheckoutSessionService));
+  // --- Lot 9 — Back-office --- (auditLogService remonté ici : déjà requis par le routeur kiosque ci-dessous)
+  const auditLogService = new AuditLogService(new AuditLogRepository(prisma));
+
+  app.use("/api/v1", createKioskRouter(kioskDeviceService, kioskCheckoutSessionService, auditLogService));
   app.use("/api/v1", createTerminalRouter(kioskDeviceService, terminal, terminalDeviceRepository, config));
+  app.use("/api/v1", createTerminalAdminRouter(terminalDeviceRepository, auditLogService));
   app.use("/api/v1", createAccessRouter(bookingsService, accessGrantService));
   app.use("/api/v1", createNotificationsRouter(notificationService));
 
-  // --- Lot 9 — Back-office ---
-  const auditLogService = new AuditLogService(new AuditLogRepository(prisma));
   const crmService = new CrmService(new CrmRepository(prisma), walletRepository, new ClientNoteRepository(prisma), auditLogService, prisma);
   const schedulingAdminService = new SchedulingAdminService(new SchedulingAdminRepository(prisma), auditLogService);
   const creditPackAdminService = new CreditPackAdminService(creditPacksRepository, auditLogService);
@@ -283,7 +290,8 @@ export function createApp({
     identityRepository,
   );
   const refundService = new RefundService(paymentsRepository, payments, notificationService);
-  const paymentsAdminService = new PaymentsAdminService(refundService, auditLogService);
+  const paymentsAdminService = new PaymentsAdminService(refundService, auditLogService, paymentsRepository);
+  const walletAdminService = new WalletAdminService(walletService, walletRepository, auditLogService);
   const healthIndicatorsService = new HealthIndicatorsService(prisma, config);
   const alertsService = new AlertsService(prisma, config, healthIndicatorsService);
 
@@ -292,8 +300,11 @@ export function createApp({
   app.use("/api/v1", createCreditPackAdminRouter(creditPackAdminService));
   app.use("/api/v1", createBookingsAdminRouter(bookingsAdminService));
   app.use("/api/v1", createPaymentsAdminRouter(paymentsAdminService));
+  app.use("/api/v1", createWalletAdminRouter(walletAdminService));
   app.use("/api/v1", createHealthIndicatorsRouter(healthIndicatorsService));
   app.use("/api/v1", createAlertsRouter(alertsService));
+  app.use("/api/v1", createAuditLogRouter(auditLogService));
+  app.use("/api/v1", createSettingsRouter(config));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

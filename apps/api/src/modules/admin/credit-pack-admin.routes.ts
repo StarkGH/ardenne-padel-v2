@@ -46,6 +46,14 @@ export function createCreditPackAdminRouter(service: CreditPackAdminService): Ro
     }
   });
 
+  router.get("/admin/credit-pack-purchases", requireAuth, requireRole("STAFF"), async (_req, res, next) => {
+    try {
+      res.status(200).json({ data: await service.listPurchases() });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.post("/admin/credit-packs", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
     try {
       const input = parseOrThrow(createSchema, req.body);

@@ -58,4 +58,9 @@ export class AuditLogService {
   async listForTarget(targetType: string, targetId: string) {
     return this.repo.listRecent({ targetType, targetId });
   }
+
+  /** CDC §55 écran 24 — journal d'audit, filtrable, jamais restreint à une seule cible. */
+  async list(filter: { targetType?: string; targetId?: string; actorUserId?: string }) {
+    return this.repo.listRecent(filter);
+  }
 }

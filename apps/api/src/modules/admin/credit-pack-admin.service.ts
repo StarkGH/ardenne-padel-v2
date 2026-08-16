@@ -32,6 +32,11 @@ export class CreditPackAdminService {
     return this.repo.listAll();
   }
 
+  /** CDC §55 écran 13 — achats de crédits, tous clients confondus. */
+  async listPurchases() {
+    return this.repo.listAllPurchases();
+  }
+
   async create(actorUserId: string, input: CreateCreditPackInput) {
     const pack = await this.repo.create({
       name: input.name,

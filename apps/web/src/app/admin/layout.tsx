@@ -9,6 +9,25 @@ import type { Role } from "@/lib/types";
 
 const ADMIN_ROLES: Role[] = ["STAFF", "ADMIN", "SUPER_ADMIN"];
 
+const NAV_LINKS: Array<{ href: string; label: string }> = [
+  { href: "/admin/dashboard", label: "Tableau de bord" },
+  { href: "/admin/planning", label: "Planning" },
+  { href: "/admin/clients", label: "Clients" },
+  { href: "/admin/tariffs", label: "Tarifs" },
+  { href: "/admin/schedule", label: "Horaires" },
+  { href: "/admin/wallets", label: "Wallets" },
+  { href: "/admin/credit-packs", label: "Packs de crédits" },
+  { href: "/admin/credit-pack-purchases", label: "Achats de crédits" },
+  { href: "/admin/payments", label: "Paiements" },
+  { href: "/admin/kiosks", label: "Kiosques" },
+  { href: "/admin/terminals", label: "Terminaux" },
+  { href: "/admin/sync", label: "Synchro Legacy" },
+  { href: "/admin/access", label: "Accès" },
+  { href: "/admin/incidents", label: "Incidents" },
+  { href: "/admin/audit-log", label: "Audit log" },
+  { href: "/admin/settings", label: "Paramètres" },
+];
+
 /**
  * CDC §55 — espace équipe. Même authentification que le parcours client
  * (`POST /auth/login`, cookie de session) : aucun compte "admin-only"
@@ -37,27 +56,31 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <nav className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-200 pb-3 text-sm">
-        <Link href="/admin/dashboard" className="font-medium text-emerald-700 hover:text-emerald-800">
-          Tableau de bord
-        </Link>
-        <Link href="/admin/planning" className="font-medium text-emerald-700 hover:text-emerald-800">
-          Planning
-        </Link>
-        <Link href="/admin/clients" className="font-medium text-emerald-700 hover:text-emerald-800">
-          Clients
-        </Link>
-        <span className="ml-auto text-xs text-slate-400">
-          {user.email} · {user.role}
-        </span>
-        <button
-          onClick={() => {
-            void logout().then(() => router.push("/admin/login"));
-          }}
-          className="text-xs text-slate-500 hover:text-red-600"
-        >
-          Déconnexion
-        </button>
+      <nav className="flex flex-col gap-2 border-b border-slate-200 pb-3">
+        <div className="flex items-center justify-between text-xs text-slate-400">
+          <span>
+            {user.email} · {user.role}
+          </span>
+          <button
+            onClick={() => {
+              void logout().then(() => router.push("/admin/login"));
+            }}
+            className="text-slate-500 hover:text-red-600"
+          >
+            Déconnexion
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
+          {NAV_LINKS.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={`font-medium hover:text-emerald-800 ${pathname.startsWith(link.href) ? "text-emerald-800 underline" : "text-emerald-700"}`}
+            >
+              {link.label}
+            </Link>
+          ))}
+        </div>
       </nav>
       {children}
     </div>

@@ -39,6 +39,11 @@ export class BookingsAdminService {
     return this.repo.listInRange(new Date(fromISO), new Date(toISO));
   }
 
+  /** CDC §55 écran 22 — accès (codes provisionnés/échoués), jamais le chiffré lui-même. */
+  async listAccessGrants(fromISO: string, toISO: string) {
+    return this.repo.listAccessGrantsInRange(new Date(fromISO), new Date(toISO));
+  }
+
   /** CDC §55 écran 4 — pas de garde organisateur/date ici, réservé STAFF+ (contrairement à `GET /bookings/:id` côté client). */
   async getById(bookingId: string) {
     const booking = await this.repo.findById(bookingId);

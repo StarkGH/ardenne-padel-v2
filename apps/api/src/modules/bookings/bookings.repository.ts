@@ -28,7 +28,40 @@ export class BookingsRepository {
     return this.db.booking.findMany({
       where: { startAt: { gte: fromDate, lt: toDate } },
       orderBy: { startAt: "asc" },
-      include: { participants: true, legacyBookingMapping: true, court: true, organizer: { select: { id: true, firstName: true, lastName: true, email: true } } },
+      include: {
+        participants: true,
+        legacyBookingMapping: true,
+        court: true,
+        organizer: { select: { id: true, firstName: true, lastName: true, email: true } },
+      },
+    });
+  }
+
+  /**
+   * CDC §55 écran 22 — accès, admin uniquement. Jamais fusionné dans
+   * `findById`/`listInRange` (utilisés aussi par les parcours client) :
+   * `codeCiphertext`/`codeIv` ne doivent jamais transiter par une réponse
+   * client, même chiffrés (CDC §57.1) — cette projection les exclut
+   * explicitement plutôt que de compter sur l'appelant pour les filtrer.
+   */
+  listAccessGrantsInRange(fromDate: Date, toDate: Date) {
+    return this.db.accessGrant.findMany({
+      where: { booking: { startAt: { gte: fromDate, lt: toDate } } },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        bookingId: true,
+        origin: true,
+        scope: true,
+        status: true,
+        validFrom: true,
+        validUntil: true,
+        provisionedAt: true,
+        revokedAt: true,
+        providerReference: true,
+        createdAt: true,
+        booking: { select: { startAt: true, court: { select: { name: true } }, organizer: { select: { firstName: true, lastName: true, email: true } } } },
+      },
     });
   }
 

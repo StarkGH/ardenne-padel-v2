@@ -30,6 +30,19 @@ async function main() {
   });
 
   await prisma.user.upsert({
+    where: { email: "superadmin@dev.ardenne-padel.local" },
+    update: {},
+    create: {
+      email: "superadmin@dev.ardenne-padel.local",
+      passwordHash: devPassword,
+      firstName: "Super",
+      lastName: "Admin",
+      role: "SUPER_ADMIN",
+      status: "ACTIVE",
+    },
+  });
+
+  await prisma.user.upsert({
     where: { email: "joueur1@dev.ardenne-padel.local" },
     update: {},
     create: {
@@ -202,6 +215,7 @@ async function main() {
 
   console.log("Seed terminé. Comptes dev (mot de passe: DevPassword123!) :");
   console.log("  - admin@dev.ardenne-padel.local (ADMIN)");
+  console.log("  - superadmin@dev.ardenne-padel.local (SUPER_ADMIN)");
   console.log("  - joueur1@dev.ardenne-padel.local (CUSTOMER)");
   console.log("4 terrains + mapping Legacy créés (Padel 1-4).");
   console.log("Horaires 08:00-22:00, durées 60/90min, tarifs de démonstration créés pour chaque terrain.");

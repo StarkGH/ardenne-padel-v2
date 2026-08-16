@@ -57,4 +57,13 @@ export class CreditPacksRepository {
     const result = await this.db.creditPackPurchase.updateMany({ where: { id, status: "PAID" }, data: { status: "CREDITED" } });
     return result.count === 1;
   }
+
+  /** CDC §55 écran 13 — vue globale des achats, tous clients confondus. */
+  listAllPurchases(limit = 100) {
+    return this.db.creditPackPurchase.findMany({
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      include: { user: { select: { id: true, firstName: true, lastName: true, email: true } }, creditPack: { select: { id: true, name: true } } },
+    });
+  }
 }

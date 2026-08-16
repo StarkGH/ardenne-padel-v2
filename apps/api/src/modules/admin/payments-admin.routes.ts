@@ -13,6 +13,14 @@ const refundSchema = z.object({
 export function createPaymentsAdminRouter(service: PaymentsAdminService): Router {
   const router = Router();
 
+  router.get("/admin/payments", requireAuth, requireRole("STAFF"), async (_req, res, next) => {
+    try {
+      res.status(200).json({ data: await service.list() });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.post("/admin/payments/:id/refund", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
     try {
       const parsed = refundSchema.safeParse(req.body);

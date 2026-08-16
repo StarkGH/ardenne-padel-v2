@@ -14,4 +14,8 @@ export class TerminalDeviceRepository {
   touchLastSeen(id: string) {
     return this.db.terminalDevice.update({ where: { id }, data: { lastSeenAt: new Date(), status: "ACTIVE" } });
   }
+
+  revoke(id: string) {
+    return this.db.terminalDevice.update({ where: { id }, data: { status: "REVOKED" } });
+  }
 }

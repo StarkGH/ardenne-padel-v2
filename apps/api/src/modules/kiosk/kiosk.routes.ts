@@ -5,6 +5,7 @@ import { requireAuth, requireRole } from "../../http/auth-middleware.js";
 import { requireKioskAuth } from "./kiosk-auth-middleware.js";
 import type { KioskDeviceService } from "./kiosk-device.service.js";
 import type { KioskCheckoutSessionService } from "./kiosk-checkout-session.service.js";
+import type { AuditLogService } from "../admin/audit-log.service.js";
 
 const createSessionSchema = z.object({
   courtId: z.string().uuid(),
@@ -28,7 +29,7 @@ const registerDeviceSchema = z.object({
  * cours" (CDC §22.2) sans exposer d'endpoint de réclamation séparé, non
  * listé au CDC §43.
  */
-export function createKioskRouter(deviceService: KioskDeviceService, sessionService: KioskCheckoutSessionService): Router {
+export function createKioskRouter(deviceService: KioskDeviceService, sessionService: KioskCheckoutSessionService, auditLog: AuditLogService): Router {
   const router = Router();
 
   /** Préfigure le Lot 9 (back-office) : réservé ADMIN, hors namespace kiosque proprement dit. */
@@ -52,6 +53,16 @@ export function createKioskRouter(deviceService: KioskDeviceService, sessionServ
     try {
       const devices = await deviceService.listActive();
       res.status(200).json({ data: devices.map((d) => ({ id: d.id, name: d.name, location: d.location, capabilities: d.capabilities, lastSeenAt: d.lastSeenAt })) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post("/admin/kiosk-devices/:id/revoke", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
+    try {
+      await deviceService.revoke(req.params.id!);
+      await auditLog.record({ actorUserId: req.authUser!.id, action: "KIOSK_DEVICE_REVOKED", targetType: "KioskDevice", targetId: req.params.id! });
+      res.status(204).send();
     } catch (err) {
       next(err);
     }

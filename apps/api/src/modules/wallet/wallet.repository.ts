@@ -79,6 +79,11 @@ export class WalletRepository {
     return this.db.walletHold.findUnique({ where: { id } });
   }
 
+  /** CDC §55 écran 14 — toutes les garanties, quel que soit leur statut (contrairement à `listActiveHoldsForWallet` du CRM). */
+  listHoldsForWallet(walletAccountId: string) {
+    return this.db.walletHold.findMany({ where: { walletAccountId }, orderBy: { createdAt: "desc" } });
+  }
+
   findActiveHoldForBooking(bookingId: string) {
     return this.db.walletHold.findFirst({ where: { bookingId, status: "ACTIVE" } });
   }

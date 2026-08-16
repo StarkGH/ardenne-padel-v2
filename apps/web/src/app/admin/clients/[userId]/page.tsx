@@ -162,6 +162,9 @@ export default function AdminClientFilePage({ params }: { params: Promise<{ user
           {wallet.activeHolds.length > 0 && (
             <p className="text-xs text-slate-400">{wallet.activeHolds.length} garantie(s) active(s).</p>
           )}
+          <Link href={`/admin/clients/${userId}/wallet`}>
+            <Button variant="secondary">Gérer le wallet</Button>
+          </Link>
         </Card>
       )}
 

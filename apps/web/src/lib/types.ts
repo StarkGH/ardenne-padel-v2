@@ -179,6 +179,12 @@ export interface CreditPack {
   displayOrder: number;
 }
 
+/** CDC §55 écran 12 — vue admin, inclut aussi les packs désactivés. */
+export interface AdminCreditPack extends CreditPack {
+  active: boolean;
+  salesChannels: Array<"ONLINE" | "KIOSK" | "TERMINAL">;
+}
+
 export interface CreditPackPurchaseResult {
   purchaseId: string;
   requiresAction: boolean;
@@ -211,7 +217,7 @@ export interface LegacyBookingMapping {
   id: string;
   bookingId: string;
   legacyBookingId: string | null;
-  syncStatus: "PENDING" | "SYNCED" | "FAILED" | "CANCEL_PENDING" | "CANCELED";
+  syncStatus: "PENDING" | "SYNCED" | "FAILED" | "CANCEL_PENDING" | "CANCELED" | "CONFIRMATION_UNKNOWN";
   lastSyncAt: string | null;
   lastError: string | null;
 }
@@ -260,11 +266,13 @@ export interface AdminPayment {
   paymentMethodType: string | null;
   amountCents: number;
   currency: string;
-  status: "PENDING" | "AUTHORIZED" | "CAPTURED" | "FAILED" | "CANCELED" | "REFUNDED" | "PARTIALLY_REFUNDED";
+  status: "PENDING" | "REQUIRES_ACTION" | "AUTHORIZED" | "SUCCEEDED" | "FAILED" | "CANCELED";
   purpose: string;
   providerFeeCents: number | null;
   providerNetCents: number | null;
   createdAt: string;
+  user?: { id: string; firstName: string; lastName: string; email: string };
+  refunds?: AdminRefund[];
 }
 
 export interface AdminRefund {
@@ -285,8 +293,10 @@ export interface AdminCreditPackPurchase {
   purchaseAmountCents: number;
   paidCreditsCents: number;
   bonusCreditsCents: number;
-  status: "PENDING" | "COMPLETED" | "FAILED";
+  status: "PENDING" | "PAID" | "CREDITED" | "FAILED";
   createdAt: string;
+  user?: { id: string; firstName: string; lastName: string; email: string };
+  creditPack?: { id: string; name: string };
 }
 
 export interface AdminWalletHold {
@@ -325,6 +335,127 @@ export interface ClientFile {
   creditPackPurchases: AdminCreditPackPurchase[];
   wallet: ClientWallet | null;
   notes: AdminClientNote[];
+}
+
+// --- Écran 8 : tarifs ---
+export interface TariffRule {
+  id: string;
+  name: string;
+  active: boolean;
+  courtId: string | null;
+  courtType: CourtType | null;
+  validFrom: string;
+  validUntil: string | null;
+  daysOfWeek: number[];
+  startTime: string;
+  endTime: string;
+  durationMinutes: number;
+  priceTotalCents: number | null;
+  pricePerParticipantCents: number | null;
+  referenceCapacity: number;
+  priority: number;
+  tags: string[];
+}
+
+// --- Écran 9 : horaires / fermetures ---
+export interface OpeningRule {
+  id: string;
+  courtId: string | null;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  validFrom: string;
+  validUntil: string | null;
+  active: boolean;
+}
+
+export type ClosureType = "MAINTENANCE" | "EVENT" | "ADMIN_BLOCK";
+
+export interface CourtClosure {
+  id: string;
+  courtId: string;
+  startAt: string;
+  endAt: string;
+  reason: string | null;
+  closureType: ClosureType;
+}
+
+// --- Écrans 10-11-14 : wallet admin ---
+export interface AdminWalletTransaction extends WalletTransaction {
+  createdBy: string | null;
+}
+
+// --- Écran 19 : kiosques ---
+export interface AdminKioskDevice {
+  id: string;
+  name: string;
+  location: string | null;
+  capabilities: Array<"TERMINAL" | "QR_HANDOFF">;
+  lastSeenAt: string | null;
+}
+
+// --- Écran 20 : terminaux Stripe ---
+export interface AdminTerminalDevice {
+  id: string;
+  provider: string;
+  providerDeviceId: string;
+  name: string;
+  location: string | null;
+  status: "ACTIVE" | "OFFLINE" | "REVOKED";
+  capabilities: string[];
+  lastSeenAt: string | null;
+  createdAt: string;
+}
+
+// --- Écran 22 : accès ---
+export interface AdminAccessGrant {
+  id: string;
+  bookingId: string;
+  origin: "V2_GENERATED" | "LEGACY_IMPORTED";
+  scope: string;
+  status: "PENDING" | "ACTIVE" | "REVOKED" | "EXPIRED" | "FAILED";
+  validFrom: string;
+  validUntil: string;
+  provisionedAt: string | null;
+  revokedAt: string | null;
+  providerReference: string | null;
+  createdAt: string;
+  booking: { startAt: string; court: { name: string }; organizer: { firstName: string; lastName: string; email: string } };
+}
+
+// --- Écran 24 : audit log ---
+export interface AuditLogEntry {
+  id: string;
+  actorUserId: string | null;
+  action: string;
+  targetType: string | null;
+  targetId: string | null;
+  reason: string | null;
+  metadata: { before: Record<string, unknown> | null; after: Record<string, unknown> | null } | null;
+  createdAt: string;
+}
+
+// --- Écrans 17-18-25 : paramètres (lecture seule) ---
+export interface AdminSettings {
+  split: {
+    paymentSplitEnabled: boolean;
+    serviceFeeEnabled: boolean;
+    serviceFeeCents: number;
+    serviceFeeAllocation: "ORGANIZER" | "PRO_RATA";
+    invitationTtlHours: number;
+  };
+  wallet: { enabled: boolean; topupEnabled: boolean; holdStaleHours: number };
+  payments: {
+    terminalEnabled: boolean;
+    qrHandoffEnabled: boolean;
+    tapToPayEnabled: boolean;
+    offSessionGuaranteeEnabled: boolean;
+    walletGuaranteeEnabled: boolean;
+  };
+  access: { v2AccessEnabled: boolean; enabledBeforeMinutes: number; enabledAfterMinutes: number };
+  kiosk: { sessionTtlMinutes: number; offlineThresholdMinutes: number };
+  legacy: { mode: string; syncEnabled: boolean; writeEnabled: boolean };
+  pilot: { pilotModeEnabled: boolean };
 }
 
 export interface HealthIndicators {

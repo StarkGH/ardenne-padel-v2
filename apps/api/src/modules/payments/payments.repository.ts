@@ -36,6 +36,15 @@ export class PaymentsRepository {
     return this.db.refund.create({ data });
   }
 
+  /** CDC §55 écrans 15-16 — vue globale des paiements (montants, canal, coûts provider réels). */
+  listRecent(limit = 100) {
+    return this.db.payment.findMany({
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      include: { user: { select: { id: true, firstName: true, lastName: true, email: true } }, refunds: true },
+    });
+  }
+
   // --- Déduplication webhook (CDC §44) ---
 
   async hasProcessedEvent(eventId: string): Promise<boolean> {

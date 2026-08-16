@@ -1,3 +1,4 @@
+import type { PaymentsRepository } from "../payments/payments.repository.js";
 import type { RefundService } from "../payments/refund.service.js";
 import type { AuditLogService } from "./audit-log.service.js";
 
@@ -10,7 +11,13 @@ export class PaymentsAdminService {
   constructor(
     private readonly refundService: RefundService,
     private readonly auditLog: AuditLogService,
+    private readonly paymentsRepo: PaymentsRepository,
   ) {}
+
+  /** CDC §55 écrans 15-16 — paiements et coûts provider réels, tous clients confondus. */
+  async list() {
+    return this.paymentsRepo.listRecent();
+  }
 
   async refund(actorUserId: string, paymentId: string, amountCents: number, reason?: string) {
     const refund = await this.refundService.refund({ paymentId, amountCents, reason, createdBy: actorUserId });
