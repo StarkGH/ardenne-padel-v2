@@ -24,6 +24,7 @@ const resendVerificationSchema = z.object({ email: z.string().email() });
 const forgotPasswordSchema = z.object({ email: z.string().email() });
 const resetPasswordSchema = z.object({ token: z.string().min(1), newPassword: z.string().min(1) });
 const changePasswordSchema = z.object({ currentPassword: z.string().min(1), newPassword: z.string().min(1) });
+const confirmEmailChangeSchema = z.object({ token: z.string().min(1) });
 
 function parseOrThrow<T>(schema: z.ZodSchema<T>, body: unknown): T {
   const result = schema.safeParse(body);
@@ -135,6 +136,21 @@ export function createIdentityRouter(identityService: IdentityService, config: A
       const { currentPassword, newPassword } = parseOrThrow(changePasswordSchema, req.body);
       await identityService.changePassword(req.authUser!.id, currentPassword, newPassword);
       res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /**
+   * Confirmation du changement d'e-mail (CDC §54 écran 18) — public comme
+   * `/verify-email` et `/password/reset` : le jeton lui-même est la preuve
+   * de possession de la nouvelle adresse, pas besoin d'être connecté.
+   */
+  router.post("/email-change/confirm", async (req, res, next) => {
+    try {
+      const { token } = parseOrThrow(confirmEmailChangeSchema, req.body);
+      const result = await identityService.confirmEmailChange(token);
+      res.status(200).json({ data: result });
     } catch (err) {
       next(err);
     }

@@ -29,6 +29,7 @@ class CapturingEmailSender implements EmailSender {
   shareUrls: string[] = [];
   async sendVerificationEmail(): Promise<void> {}
   async sendPasswordResetEmail(): Promise<void> {}
+  async sendEmailChangeConfirmation(): Promise<void> {}
   async sendSplitInvitationEmail(_to: string, url: string): Promise<void> {
     this.shareUrls.push(url);
   }

@@ -15,6 +15,7 @@ import type { EmailSender } from "./email-sender.js";
 class CapturingEmailSender implements EmailSender {
   verificationUrls: string[] = [];
   resetUrls: string[] = [];
+  emailChangeUrls: string[] = [];
 
   async sendVerificationEmail(_to: string, url: string): Promise<void> {
     this.verificationUrls.push(url);
@@ -22,6 +23,10 @@ class CapturingEmailSender implements EmailSender {
 
   async sendPasswordResetEmail(_to: string, url: string): Promise<void> {
     this.resetUrls.push(url);
+  }
+
+  async sendEmailChangeConfirmation(_to: string, url: string): Promise<void> {
+    this.emailChangeUrls.push(url);
   }
 
   async sendSplitInvitationEmail(): Promise<void> {}
@@ -254,5 +259,92 @@ describe("Identity — parcours complet (CDC §7.2, §43)", () => {
       .post("/api/v1/auth/login")
       .send({ email: credentials.email, password: credentials.password });
     expect(loginStillOldPassword.status).toBe(200);
+  });
+
+  it("changes the account email end-to-end: request, confirm via the emailed link, login with the new address", async () => {
+    await request(app).post("/api/v1/auth/register").send(credentials);
+    const verifyToken = extractToken(emailSender.verificationUrls[0]!);
+    await request(app).post("/api/v1/auth/verify-email").send({ token: verifyToken });
+    const login = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: credentials.email, password: credentials.password });
+    const cookie = login.headers["set-cookie"] as string;
+
+    const request1 = await request(app)
+      .post("/api/v1/me/profile/email-change")
+      .set("Cookie", cookie)
+      .send({ newEmail: "nouvelle-adresse@example.com", currentPassword: credentials.password });
+    expect(request1.status).toBe(202);
+    expect(emailSender.emailChangeUrls).toHaveLength(1);
+    // Le lien part vers la nouvelle adresse, jamais vers l'ancienne.
+    expect(emailSender.emailChangeUrls[0]).toContain("/profile/email-change?token=");
+
+    // L'e-mail du compte n'a pas encore changé tant que le lien n'est pas cliqué.
+    const meBeforeConfirm = await request(app).get("/api/v1/auth/me").set("Cookie", cookie);
+    expect(meBeforeConfirm.body.data.email).toBe(credentials.email);
+
+    const confirmToken = extractToken(emailSender.emailChangeUrls[0]!);
+    const confirm = await request(app).post("/api/v1/auth/email-change/confirm").send({ token: confirmToken });
+    expect(confirm.status).toBe(200);
+    expect(confirm.body.data.email).toBe("nouvelle-adresse@example.com");
+
+    // La session courante reste valide (même logique que le changement de mot de passe).
+    const meAfterConfirm = await request(app).get("/api/v1/auth/me").set("Cookie", cookie);
+    expect(meAfterConfirm.status).toBe(200);
+    expect(meAfterConfirm.body.data.email).toBe("nouvelle-adresse@example.com");
+
+    const loginOldEmail = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: credentials.email, password: credentials.password });
+    expect(loginOldEmail.status).toBe(401);
+
+    const loginNewEmail = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: "nouvelle-adresse@example.com", password: credentials.password });
+    expect(loginNewEmail.status).toBe(200);
+  });
+
+  it("POST /me/profile/email-change rejects an incorrect current password without sending anything", async () => {
+    await request(app).post("/api/v1/auth/register").send(credentials);
+    const verifyToken = extractToken(emailSender.verificationUrls[0]!);
+    await request(app).post("/api/v1/auth/verify-email").send({ token: verifyToken });
+    const login = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: credentials.email, password: credentials.password });
+    const cookie = login.headers["set-cookie"] as string;
+
+    const res = await request(app)
+      .post("/api/v1/me/profile/email-change")
+      .set("Cookie", cookie)
+      .send({ newEmail: "autre@example.com", currentPassword: "MauvaisMotDePasse" });
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe("INVALID_CREDENTIALS");
+    expect(emailSender.emailChangeUrls).toHaveLength(0);
+  });
+
+  it("POST /me/profile/email-change rejects an address already used by another account", async () => {
+    const other = { email: "deja-pris@example.com", password: "AutreMotDePasse123", firstName: "Autre", lastName: "Compte" };
+    await request(app).post("/api/v1/auth/register").send(other);
+
+    await request(app).post("/api/v1/auth/register").send(credentials);
+    const verifyToken = extractToken(emailSender.verificationUrls[emailSender.verificationUrls.length - 1]!);
+    await request(app).post("/api/v1/auth/verify-email").send({ token: verifyToken });
+    const login = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ email: credentials.email, password: credentials.password });
+    const cookie = login.headers["set-cookie"] as string;
+
+    const res = await request(app)
+      .post("/api/v1/me/profile/email-change")
+      .set("Cookie", cookie)
+      .send({ newEmail: other.email, currentPassword: credentials.password });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("EMAIL_ALREADY_REGISTERED");
+  });
+
+  it("POST /auth/email-change/confirm rejects an unknown or already-used token", async () => {
+    const res = await request(app).post("/api/v1/auth/email-change/confirm").send({ token: "jeton-inconnu" });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("TOKEN_INVALID_OR_EXPIRED");
   });
 });

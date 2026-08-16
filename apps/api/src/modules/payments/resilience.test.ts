@@ -36,6 +36,7 @@ class ThrowingAccessProvider implements AccessProvider {
 class ThrowingEmailSender implements EmailSender {
   async sendVerificationEmail(): Promise<void> {}
   async sendPasswordResetEmail(): Promise<void> {}
+  async sendEmailChangeConfirmation(): Promise<void> {}
   async sendSplitInvitationEmail(): Promise<void> {}
   async sendTemplatedEmail(): Promise<void> {
     throw new Error("fournisseur e-mail indisponible (simulation)");

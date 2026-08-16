@@ -54,6 +54,10 @@ export class IdentityRepository {
     });
   }
 
+  updateUserEmail(userId: string, email: string) {
+    return this.db.user.update({ where: { id: userId }, data: { email } });
+  }
+
   touchLastLogin(userId: string) {
     return this.db.user.update({ where: { id: userId }, data: { lastLoginAt: new Date() } });
   }
@@ -129,6 +133,22 @@ export class IdentityRepository {
 
   markPasswordResetTokenUsed(id: string) {
     return this.db.passwordResetToken.update({ where: { id }, data: { usedAt: new Date() } });
+  }
+
+  // --- Changement d'e-mail (CDC §54 écran 18) ---
+
+  createEmailChangeToken(input: { userId: string; newEmail: string; tokenHash: string; expiresAt: Date }) {
+    return this.db.emailChangeToken.create({ data: { ...input, newEmail: normalizeEmail(input.newEmail) } });
+  }
+
+  findValidEmailChangeToken(tokenHash: string) {
+    return this.db.emailChangeToken.findFirst({
+      where: { tokenHash, usedAt: null, expiresAt: { gt: new Date() } },
+    });
+  }
+
+  markEmailChangeTokenUsed(id: string) {
+    return this.db.emailChangeToken.update({ where: { id }, data: { usedAt: new Date() } });
   }
 
   // --- Login attempts (rate limiting, CDC §59.1) ---

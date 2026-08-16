@@ -44,6 +44,7 @@ export default function ProfilePage() {
       </Card>
 
       <ProfileForm profile={profile} onUpdated={setProfile} />
+      <EmailChangeForm currentEmail={profile.email} />
       <PasswordForm />
 
       <Link href="/profile/payment-methods">
@@ -104,6 +105,60 @@ function ProfileForm({ profile, onUpdated }: { profile: Profile; onUpdated: (p: 
       {saved && <p className="text-sm text-emerald-700">Profil mis à jour.</p>}
       <Button type="submit" variant="secondary" disabled={saving}>
         {saving ? "Enregistrement..." : "Enregistrer"}
+      </Button>
+    </form>
+  );
+}
+
+function EmailChangeForm({ currentEmail }: { currentEmail: string }) {
+  const [newEmail, setNewEmail] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      await api.post("/me/profile/email-change", { newEmail, currentPassword });
+      setNewEmail("");
+      setCurrentPassword("");
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Impossible de demander le changement d'e-mail.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+      <h2 className="text-sm font-semibold text-slate-500">Adresse e-mail</h2>
+      <p className="text-xs text-slate-400">Adresse actuelle : {currentEmail}</p>
+      <Field label="Nouvelle adresse e-mail">
+        <TextInput required type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} autoComplete="email" />
+      </Field>
+      <Field label="Mot de passe actuel">
+        <TextInput
+          required
+          type="password"
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+          autoComplete="current-password"
+        />
+      </Field>
+      <ErrorBanner message={error} />
+      {saved && (
+        <p className="text-sm text-emerald-700">
+          Un e-mail de confirmation a été envoyé à la nouvelle adresse. Le changement prendra effet une fois le lien
+          confirmé.
+        </p>
+      )}
+      <Button type="submit" variant="secondary" disabled={saving}>
+        {saving ? "Envoi..." : "Changer l'adresse e-mail"}
       </Button>
     </form>
   );

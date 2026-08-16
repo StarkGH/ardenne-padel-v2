@@ -30,6 +30,7 @@ export async function resetIntegrationTestData(prisma: PrismaClient): Promise<vo
   await prisma.loginAttempt.deleteMany();
   await prisma.passwordResetToken.deleteMany();
   await prisma.emailVerificationToken.deleteMany();
+  await prisma.emailChangeToken.deleteMany();
   await prisma.session.deleteMany();
   await prisma.legacyClient.deleteMany();
   await prisma.user.deleteMany();

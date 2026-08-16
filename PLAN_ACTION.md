@@ -313,6 +313,12 @@ Estimations données pour une petite équipe (1 à 2 développeurs full-stack + 
 
 ---
 
+## Frontend Lot 9 — Changement d'adresse e-mail
+
+**Statut : fait et vérifié en direct dans un vrai navigateur.** Traite le dernier gap laissé de côté par ADR-0026 : contrairement aux deux gaps du Lot 8, celui-ci exigeait une vraie capacité backend (jeton de re-vérification pointant vers une nouvelle adresse), pas seulement un écran. Nouveau modèle `EmailChangeToken` (distinct d'`EmailVerificationToken`, qui n'a pas de notion d'adresse cible différente de `user.email`), même pattern de jeton opaque haché que le reste du module identity. `POST /me/profile/email-change` (sous `/me/*`, session + mot de passe actuel requis — même garde-fou que `changePassword`, ADR-0022) émet le jeton et envoie le lien de confirmation **uniquement à la nouvelle adresse**, jamais à l'ancienne. `POST /auth/email-change/confirm` (sous `/auth/*`, public — même modèle de sécurité que `/verify-email`/`/password/reset` : le jeton est la preuve, pas la session) applique le changement après avoir revérifié l'unicité de l'adresse au moment de la confirmation (quelqu'un a pu la prendre entre-temps). Comme `changePassword`, la session courante n'est pas révoquée. Côté frontend : nouvelle section "Adresse e-mail" sur `/profile` (nouvelle adresse + mot de passe actuel, confirmation "un e-mail de confirmation a été envoyé à la nouvelle adresse") et nouvel écran `/profile/email-change` (lit `?token=`, appelle la confirmation, affiche succès ou erreur), suivant exactement le patron déjà en place sur `/verify-email`. Vérifié en direct : demande depuis `/profile` avec mot de passe ressaisi, lien de confirmation récupéré (log console du serveur de dev), clic sur le lien, `GET /auth/me` reflète la nouvelle adresse sans re-connexion (session préservée), connexion avec l'ancienne adresse refusée (401), connexion avec la nouvelle acceptée (200). ADR-0027 actée. 4 nouveaux tests backend (210 au total, 35 fichiers verts). Build et lint propres côté web et api. Restant : l'ancienne adresse n'est jamais notifiée qu'un changement a eu lieu ; pas de nettoyage des jetons expirés non utilisés (même dette déjà assumée pour les autres types de jetons).
+
+---
+
 ## Après le Lot 10 — Migration par cohortes et cutover
 
 Suivre `docs/migration.md` : Phase 1 (interne) → Phase 2 (pilote) → Phase 3 (extension) → Phase 4 (généralisation) → Phase 5 (cutover) → Phase 6 (extinction), chacune gouvernée par les critères du CDC §51 et non par une simple impression de stabilité.
@@ -342,7 +348,7 @@ Le cutover final n'est déclenché qu'après passage complet de la **checklist A
 | Frontend 4 | Profil et moyens de paiement | fait |
 | Frontend 5 | Kiosque / QR handoff | fait |
 
-**Les 10 lots backend et les 8 lots frontend décrits ci-dessus sont tous committés et testés** (206 tests backend verts en CI, voir chaque section pour le détail de ce qui reste par lot). Les 25 écrans admin et les écrans client/kiosque secondaires sont désormais construits. Ce qui bloque encore un vrai pilote : un compte Stripe réel pour Ardenne Padel (aucun parcours de paiement n'a été validé en conditions réelles, tout se dégrade proprement en 503, à l'exception des paiements 100 % wallet — réellement aboutis en direct), et les validations juridiques/comptables V-018 à V-024 (frais SPLIT, TVA crédits — hors code).
+**Les 10 lots backend et les 9 lots frontend décrits ci-dessus sont tous committés et testés** (210 tests backend verts en CI, voir chaque section pour le détail de ce qui reste par lot). Les 25 écrans admin, les écrans client/kiosque secondaires et le changement d'e-mail sont désormais construits. Ce qui bloque encore un vrai pilote : un compte Stripe réel pour Ardenne Padel (aucun parcours de paiement n'a été validé en conditions réelles, tout se dégrade proprement en 503, à l'exception des paiements 100 % wallet — réellement aboutis en direct), et les validations juridiques/comptables V-018 à V-024 (frais SPLIT, TVA crédits — hors code).
 
 ## Ce qui ne doit pas être développé maintenant (rappel §4)
 
@@ -352,6 +358,6 @@ Réseau social complet, messagerie instantanée, marketplace, moteur de recomman
 
 1. **Ouvrir un compte Stripe réel pour Ardenne Padel** (test puis live) et confirmer les moyens de paiement locaux disponibles — bloque la validation en conditions réelles de tous les parcours de paiement (FULL, SPLIT, wallet, Terminal) déjà développés mais jamais exercés avec de vraies clés (V-011 à V-017).
 2. ~~Construire les 25 écrans admin du CDC §55~~ — fait (Frontend Lots 6-7, ADR-0024/0025).
-3. ~~Compléter les écrans client/kiosque secondaires~~ — fait (Frontend Lot 8, ADR-0026). Reste le changement d'e-mail (capacité backend manquante, pas un écran).
+3. ~~Compléter les écrans client/kiosque secondaires~~ — fait (Frontend Lot 8, ADR-0026). ~~Changement d'e-mail~~ — fait (Frontend Lot 9, ADR-0027).
 4. Trancher les points juridiques/comptables en attente (V-018 à V-024 : TVA sur les crédits, wording du frais SPLIT à faire valider pour ne jamais être assimilé à une surcharge carte interdite en Belgique) — n'a pas bloqué le développement (CDC §100) mais bloque l'activation commerciale.
 5. Une fois Stripe configuré : lancer la Phase 1 (interne) de la migration par cohortes décrite dans `docs/migration.md`, en suivant la checklist Annexe B/C avant tout cutover.

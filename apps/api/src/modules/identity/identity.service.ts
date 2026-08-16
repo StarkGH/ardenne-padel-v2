@@ -1,6 +1,6 @@
 import { AppError, ErrorCodes, logger } from "@ardenne/shared";
 import type { AppConfig } from "@ardenne/config";
-import type { IdentityRepository } from "./identity.repository.js";
+import { normalizeEmail, type IdentityRepository } from "./identity.repository.js";
 import type { EmailSender } from "./email-sender.js";
 import { hashPassword, verifyPassword } from "./password.js";
 import { generateOpaqueToken, hashToken } from "./tokens.js";
@@ -247,5 +247,60 @@ export class IdentityService {
     await this.repo.updatePasswordHash(userId, passwordHash);
 
     logger.info({ event: "UserPasswordChanged", userId }, "user password changed");
+  }
+
+  /**
+   * CDC §54 écran 18 — changement d'e-mail avec re-vérification. Exige le
+   * mot de passe actuel (comme `changePassword`) : une session volée ne
+   * suffit pas à rediriger silencieusement les e-mails de récupération de
+   * compte vers une adresse contrôlée par l'attaquant. Le lien de
+   * confirmation part vers la *nouvelle* adresse — l'ancienne ne reçoit
+   * jamais rien tant que le changement n'a pas été confirmé.
+   */
+  async requestEmailChange(userId: string, newEmail: string, currentPassword: string): Promise<void> {
+    const user = await this.repo.findUserById(userId);
+    if (!user) throw new AppError(ErrorCodes.NOT_FOUND, "Utilisateur introuvable.", 404);
+
+    const ok = await verifyPassword(currentPassword, user.passwordHash);
+    if (!ok) throw new AppError(ErrorCodes.INVALID_CREDENTIALS, "Mot de passe actuel incorrect.", 401);
+
+    const normalized = normalizeEmail(newEmail);
+    if (normalized === user.email) {
+      throw new AppError(ErrorCodes.VALIDATION_FAILED, "Cette adresse est déjà celle de votre compte.", 422);
+    }
+    const existing = await this.repo.findUserByEmail(normalized);
+    if (existing) {
+      throw new AppError(ErrorCodes.EMAIL_ALREADY_REGISTERED, "Cette adresse e-mail est déjà utilisée.", 409);
+    }
+
+    const { raw, hash } = generateOpaqueToken();
+    const expiresAt = new Date(Date.now() + this.config.EMAIL_VERIFICATION_TOKEN_TTL_HOURS * 3600_000);
+    await this.repo.createEmailChangeToken({ userId, newEmail: normalized, tokenHash: hash, expiresAt });
+
+    const confirmUrl = `${this.config.PUBLIC_BASE_URL}/profile/email-change?token=${raw}`;
+    await this.emailSender.sendEmailChangeConfirmation(normalized, confirmUrl);
+
+    logger.info({ event: "EmailChangeRequested", userId }, "changement d'e-mail demandé");
+  }
+
+  async confirmEmailChange(rawToken: string) {
+    const tokenHash = hashToken(rawToken);
+    const token = await this.repo.findValidEmailChangeToken(tokenHash);
+    if (!token) {
+      throw new AppError(ErrorCodes.TOKEN_INVALID_OR_EXPIRED, "Lien de confirmation invalide ou expiré.", 400);
+    }
+
+    // Revérifie l'unicité au moment de la confirmation : quelqu'un a pu
+    // prendre cette adresse entre la demande et le clic sur le lien.
+    const existing = await this.repo.findUserByEmail(token.newEmail);
+    if (existing && existing.id !== token.userId) {
+      throw new AppError(ErrorCodes.EMAIL_ALREADY_REGISTERED, "Cette adresse e-mail est déjà utilisée.", 409);
+    }
+
+    await this.repo.updateUserEmail(token.userId, token.newEmail);
+    await this.repo.markEmailChangeTokenUsed(token.id);
+
+    logger.info({ event: "EmailChanged", userId: token.userId }, "user email changed");
+    return { email: token.newEmail };
   }
 }

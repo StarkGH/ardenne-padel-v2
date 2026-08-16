@@ -10,6 +10,11 @@ const updateProfileSchema = z.object({
   phone: z.string().max(30).optional(),
 });
 
+const requestEmailChangeSchema = z.object({
+  newEmail: z.string().email(),
+  currentPassword: z.string().min(1),
+});
+
 function parseOrThrow<T>(schema: z.ZodSchema<T>, body: unknown): T {
   const result = schema.safeParse(body);
   if (!result.success) {
@@ -42,6 +47,17 @@ export function createProfileRouter(identityService: IdentityService): Router {
       const input = parseOrThrow(updateProfileSchema, req.body);
       const profile = await identityService.updateProfile(req.authUser!.id, input);
       res.status(200).json({ data: profile });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  /** CDC §54 écran 18 — demande de changement d'e-mail (lien de confirmation envoyé à la nouvelle adresse). */
+  router.post("/me/profile/email-change", requireAuth, async (req, res, next) => {
+    try {
+      const { newEmail, currentPassword } = parseOrThrow(requestEmailChangeSchema, req.body);
+      await identityService.requestEmailChange(req.authUser!.id, newEmail, currentPassword);
+      res.status(202).json({ data: { accepted: true } });
     } catch (err) {
       next(err);
     }
