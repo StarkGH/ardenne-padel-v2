@@ -4,7 +4,7 @@
 
 Plateforme propriétaire destinée à remplacer progressivement Doinsport pour la gestion des réservations, paiements, wallet et accès du club Ardenne Padel.
 
-**Statut : Lots 0 à 10 (backend) et les 9 lots frontend (client, SPLIT, wallet, profil, kiosque, les 25 écrans admin, écrans secondaires, changement d'e-mail) terminés — 210 tests verts, CI en place.** Reste : la migration par cohortes et le cutover Doinsport (voir [`PLAN_ACTION.md`](PLAN_ACTION.md) pour le détail lot par lot et [`docs/migration.md`](docs/migration.md) pour la suite). Aucun compte Stripe réel n'est encore configuré pour Ardenne Padel — les parcours de paiement se dégradent proprement (503) en attendant (sauf les paiements 100 % wallet, réellement fonctionnels).
+**Statut : Lots 0 à 10 (backend) et les 10 lots frontend (client, SPLIT, wallet, profil, kiosque, les 25 écrans admin, écrans secondaires, changement d'e-mail, rapport de chiffre d'affaires) terminés — 213 tests verts, CI en place.** Reste : la migration par cohortes et le cutover Doinsport (voir [`PLAN_ACTION.md`](PLAN_ACTION.md) pour le détail lot par lot et [`docs/migration.md`](docs/migration.md) pour la suite). Aucun compte Stripe réel n'est encore configuré pour Ardenne Padel — les parcours de paiement se dégradent proprement (503) en attendant (sauf les paiements 100 % wallet, réellement fonctionnels).
 
 ## Documents de référence
 
@@ -15,6 +15,7 @@ Plateforme propriétaire destinée à remplacer progressivement Doinsport pour l
 | [`PLAN_ACTION.md`](PLAN_ACTION.md) | Plan d'action de développement, lot par lot, avec jalons et critères de sortie |
 | [`docs/architecture.md`](docs/architecture.md) | Vue d'ensemble de l'architecture cible (monolithe modulaire) |
 | [`docs/migration.md`](docs/migration.md) | Stratégie Dual Run et migration par cohortes |
+| [`docs/tva.md`](docs/tva.md) | Taux de TVA confirmés par le comptable et implications pour le modèle de données (V-018) |
 | [`docs/adr/`](docs/adr/) | Décisions d'architecture structurantes |
 
 En cas d'ambiguïté entre le code et le CDC : **le CDC fait foi**. Toute décision structurante doit être documentée dans un ADR (voir `docs/adr/0000-template.md`).

@@ -19,6 +19,7 @@ const NAV_LINKS: Array<{ href: string; label: string }> = [
   { href: "/admin/credit-packs", label: "Packs de crédits" },
   { href: "/admin/credit-pack-purchases", label: "Achats de crédits" },
   { href: "/admin/payments", label: "Paiements" },
+  { href: "/admin/reports", label: "Chiffre d'affaires" },
   { href: "/admin/kiosks", label: "Kiosques" },
   { href: "/admin/terminals", label: "Terminaux" },
   { href: "/admin/sync", label: "Synchro Legacy" },

@@ -458,6 +458,22 @@ export interface AdminSettings {
   pilot: { pilotModeEnabled: boolean };
 }
 
+export interface RevenueDay {
+  date: string;
+  bookingsCount: number;
+  revenueTotalCents: number;
+  revenueExVatCents: number;
+  vatCents: number;
+}
+
+export interface BookingsRevenueReport {
+  from: string;
+  to: string;
+  vatRatePercent: number;
+  days: RevenueDay[];
+  summary: RevenueDay;
+}
+
 export interface HealthIndicators {
   lastLegacySyncAt: string | null;
   legacySyncErrors: number;

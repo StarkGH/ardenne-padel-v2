@@ -92,6 +92,8 @@ import { createWalletAdminRouter } from "./modules/admin/wallet-admin.routes.js"
 import { createTerminalAdminRouter } from "./modules/admin/terminal-admin.routes.js";
 import { createAuditLogRouter } from "./modules/admin/audit-log.routes.js";
 import { createSettingsRouter } from "./modules/admin/settings.routes.js";
+import { ReportsService } from "./modules/admin/reports.service.js";
+import { createReportsRouter } from "./modules/admin/reports.routes.js";
 
 export interface AppDependencies {
   prisma: PrismaClient;
@@ -294,6 +296,7 @@ export function createApp({
   const walletAdminService = new WalletAdminService(walletService, walletRepository, auditLogService);
   const healthIndicatorsService = new HealthIndicatorsService(prisma, config);
   const alertsService = new AlertsService(prisma, config, healthIndicatorsService);
+  const reportsService = new ReportsService(prisma, config);
 
   app.use("/api/v1", createCrmRouter(crmService));
   app.use("/api/v1", createSchedulingAdminRouter(schedulingAdminService));
@@ -305,6 +308,7 @@ export function createApp({
   app.use("/api/v1", createAlertsRouter(alertsService));
   app.use("/api/v1", createAuditLogRouter(auditLogService));
   app.use("/api/v1", createSettingsRouter(config));
+  app.use("/api/v1", createReportsRouter(reportsService));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

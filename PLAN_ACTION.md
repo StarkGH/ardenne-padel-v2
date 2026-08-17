@@ -319,6 +319,12 @@ Estimations données pour une petite équipe (1 à 2 développeurs full-stack + 
 
 ---
 
+## Frontend Lot 10 — Chiffre d'affaires réservations (V-018)
+
+**Statut : fait et vérifié en direct dans un vrai navigateur.** Comble le gap identifié dans `docs/tva.md` §3.3 : le comptable (BDO) reconstituait jusqu'ici le CA "Padel" manuellement pour son template de déclaration TVA. Nouvel écran admin `/admin/reports` (`GET /admin/reports/bookings-revenue?from=&to=`, `ReportsService`) : somme `Booking.priceTotalCents` des réservations `CONFIRMED`/`COMPLETED` groupées par jour sur `confirmedAt` — le seul instant valable pour toutes les voies de paiement (Stripe, wallet, mixte), puisqu'une réservation payée 100 % wallet ne crée pas de ligne `Payment` (baser le rapport sur `Payment` aurait sous-compté ces réservations). Ventilation TVAC/HTVA/TVA au taux `BOOKING_VAT_RATE_PERCENT` (nouvelle variable de config, défaut 6 %, cohérent avec le taux confirmé dans `docs/tva.md` — configurable plutôt que codé en dur, puisqu'un taux de TVA peut changer). Export CSV client-side pour coller directement les lignes journalières dans le template comptable existant. Vérifié en direct : réservation créée et payée 100 % wallet comme donnée de test, écran atteint depuis le nouveau lien de menu "Chiffre d'affaires", totaux et ventilation corrects (24,00 € TVAC → 22,64 € HTVA + 1,36 € TVA), export CSV déclenché sans erreur. 3 nouveaux tests backend (213 au total, 36 fichiers verts). Build et lint propres. Restant : remboursements non déduits (limitation documentée, pas une omission silencieuse — une réservation remboursée reste comptée au mois de sa confirmation) ; pas de export PDF/Excel natif (CSV seulement) ; ne couvre que la location de terrain, cohérent avec le périmètre actuel de l'application (voir `docs/tva.md` §2).
+
+---
+
 ## Après le Lot 10 — Migration par cohortes et cutover
 
 Suivre `docs/migration.md` : Phase 1 (interne) → Phase 2 (pilote) → Phase 3 (extension) → Phase 4 (généralisation) → Phase 5 (cutover) → Phase 6 (extinction), chacune gouvernée par les critères du CDC §51 et non par une simple impression de stabilité.
@@ -348,7 +354,7 @@ Le cutover final n'est déclenché qu'après passage complet de la **checklist A
 | Frontend 4 | Profil et moyens de paiement | fait |
 | Frontend 5 | Kiosque / QR handoff | fait |
 
-**Les 10 lots backend et les 9 lots frontend décrits ci-dessus sont tous committés et testés** (210 tests backend verts en CI, voir chaque section pour le détail de ce qui reste par lot). Les 25 écrans admin, les écrans client/kiosque secondaires et le changement d'e-mail sont désormais construits. Ce qui bloque encore un vrai pilote : un compte Stripe réel pour Ardenne Padel (aucun parcours de paiement n'a été validé en conditions réelles, tout se dégrade proprement en 503, à l'exception des paiements 100 % wallet — réellement aboutis en direct), et les validations juridiques/comptables V-018 à V-024 (frais SPLIT, TVA crédits — hors code).
+**Les 10 lots backend et les 10 lots frontend décrits ci-dessus sont tous committés et testés** (213 tests backend verts en CI, voir chaque section pour le détail de ce qui reste par lot). Les 25 écrans admin, les écrans client/kiosque secondaires, le changement d'e-mail et le rapport de chiffre d'affaires sont désormais construits. Ce qui bloque encore un vrai pilote : un compte Stripe réel pour Ardenne Padel (aucun parcours de paiement n'a été validé en conditions réelles, tout se dégrade proprement en 503, à l'exception des paiements 100 % wallet — réellement aboutis en direct), et les validations juridiques/comptables V-018 à V-024 (frais SPLIT, TVA crédits — hors code).
 
 ## Ce qui ne doit pas être développé maintenant (rappel §4)
 
@@ -359,5 +365,5 @@ Réseau social complet, messagerie instantanée, marketplace, moteur de recomman
 1. **Ouvrir un compte Stripe réel pour Ardenne Padel** (test puis live) et confirmer les moyens de paiement locaux disponibles — bloque la validation en conditions réelles de tous les parcours de paiement (FULL, SPLIT, wallet, Terminal) déjà développés mais jamais exercés avec de vraies clés (V-011 à V-017).
 2. ~~Construire les 25 écrans admin du CDC §55~~ — fait (Frontend Lots 6-7, ADR-0024/0025).
 3. ~~Compléter les écrans client/kiosque secondaires~~ — fait (Frontend Lot 8, ADR-0026). ~~Changement d'e-mail~~ — fait (Frontend Lot 9, ADR-0027).
-4. Trancher les points juridiques/comptables en attente (V-018 à V-024 : TVA sur les crédits, wording du frais SPLIT à faire valider pour ne jamais être assimilé à une surcharge carte interdite en Belgique) — n'a pas bloqué le développement (CDC §100) mais bloque l'activation commerciale.
+4. Trancher les points juridiques/comptables en attente (V-018 à V-024 : TVA sur les crédits, wording du frais SPLIT à faire valider pour ne jamais être assimilé à une surcharge carte interdite en Belgique) — n'a pas bloqué le développement (CDC §100) mais bloque l'activation commerciale. **V-018 (TVA) partiellement clos** : taux confirmés par le comptable (BDO) pour l'ensemble des recettes du club, voir [`docs/tva.md`](docs/tva.md) — le périmètre actuellement couvert par la plateforme (réservations + wallet) est intégralement au taux de 6 %, aucun changement de schéma requis aujourd'hui. Restent en attente côté comptable : traitement définitif de la licence AFP et éventuel changement de taux boissons non-alcoolisées (01/03/2026) ; V-019 à V-024 toujours ouverts.
 5. Une fois Stripe configuré : lancer la Phase 1 (interne) de la migration par cohortes décrite dans `docs/migration.md`, en suivant la checklist Annexe B/C avant tout cutover.

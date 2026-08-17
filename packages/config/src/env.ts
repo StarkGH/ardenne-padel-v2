@@ -107,6 +107,12 @@ const envSchema = z.object({
   // tant qu'actif, seuls les comptes marqués `pilotUser` peuvent créer une
   // réservation (voir `User.pilotUser`, `bookings.routes.ts`).
   PILOT_MODE_ENABLED: boolFromString.default("false"),
+
+  // Taux de TVA confirmé par le comptable pour la location de terrain (voir
+  // `docs/tva.md`) — configurable plutôt que codé en dur dans le rapport de
+  // chiffre d'affaires admin, puisqu'un taux de TVA est par nature une règle
+  // susceptible de changer (cf. commentaire en tête de fichier).
+  BOOKING_VAT_RATE_PERCENT: z.coerce.number().nonnegative().default(6),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;
