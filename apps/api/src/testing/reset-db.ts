@@ -10,6 +10,9 @@ import type { PrismaClient } from "@prisma/client";
  */
 export async function resetIntegrationTestData(prisma: PrismaClient): Promise<void> {
   await prisma.auditLog.deleteMany();
+  await prisma.legacySyncRun.deleteMany();
+  await prisma.legacyBooking.deleteMany();
+  await prisma.clientMigrationInvitation.deleteMany(); // référence legacyClient -> avant legacyClient
   await prisma.clientNote.deleteMany(); // référence user -> avant user
   await prisma.notificationOutbox.deleteMany();
   await prisma.accessGrant.deleteMany(); // référence booking -> avant booking

@@ -47,6 +47,7 @@ model User {
   walletAccount           WalletAccount?
   creditPackPurchases     CreditPackPurchase[]
   clientNotes             ClientNote[]
+  legacyClientLink        LegacyClient?
 
   @@map("users")
 }
@@ -169,6 +170,7 @@ model Court {
   durationRules      DurationRule[]
   tariffRules        TariffRule[]
   bookings           Booking[]
+  legacyBookings     LegacyBooking[]
 
   @@map("courts")
 }
@@ -191,21 +193,130 @@ model LegacyCourtMapping {
 /// CDC §45 (`legacy_clients`) — cache local minimal des clients Doinsport
 /// ("Shadow Client"), utilisé pour la recherche joueurs et la migration
 /// (CDC §7.3) sans jamais appeler `getClients()` à la volée (CDC §19.3).
+/// `migrationStatus` porte la machine à états CDC §7.4 explicitement plutôt
+/// que de la déduire de `linkedUserId` (INVITED et MIGRATION_PENDING ont
+/// tous deux `linkedUserId` nul, mais ne sont pas le même état — voir
+/// ADR-0031).
 model LegacyClient {
-  id           String   @id @default(uuid())
-  provider     String   @default("DOINSPORT")
-  externalId   String   @unique @map("external_id")
-  firstName    String   @map("first_name")
-  lastName     String   @map("last_name")
-  email        String?
-  phone        String?
-  linkedUserId String?  @map("linked_user_id")
-  lastSyncedAt DateTime @map("last_synced_at")
-  rawHash      String?  @map("raw_hash")
+  id              String                @id @default(uuid())
+  provider        String                @default("DOINSPORT")
+  externalId      String                @unique @map("external_id")
+  firstName       String                @map("first_name")
+  lastName        String                @map("last_name")
+  email           String?
+  phone           String?
+  linkedUserId    String?               @unique @map("linked_user_id")
+  linkedUser      User?                 @relation(fields: [linkedUserId], references: [id])
+  migrationStatus ClientMigrationStatus @default(LEGACY_ONLY) @map("migration_status")
+  /// CDC §7.5 — renseigné uniquement en `MERGE_REQUIRED`, texte libre à
+  /// l'usage de l'admin qui tranchera manuellement (ex. "GSM identique à
+  /// user X mais e-mail différent").
+  mergeNote       String?               @map("merge_note")
+  lastSyncedAt    DateTime              @map("last_synced_at")
+  rawHash         String?               @map("raw_hash")
+
+  migrationInvitations ClientMigrationInvitation[]
+  legacyBookings       LegacyBooking[]
 
   @@index([email])
-  @@index([linkedUserId])
+  @@index([migrationStatus])
   @@map("legacy_clients")
+}
+
+/// CDC §7.4.
+enum ClientMigrationStatus {
+  LEGACY_ONLY
+  INVITED
+  MIGRATION_PENDING
+  MIGRATED
+  DISABLED
+  MERGE_REQUIRED
+}
+
+/// CDC §7.3 points 3-6 — jeton de migration, même pattern opaque haché que
+/// `EmailVerificationToken`/`PasswordResetToken`/`EmailChangeToken`, mais
+/// rattaché à un `LegacyClient` plutôt qu'à un `User` : à l'émission, le
+/// compte V2 n'existe pas encore — c'est précisément ce que ce jeton crée
+/// à l'usage. La possession du lien vaut vérification d'e-mail (CDC §7.3.5).
+model ClientMigrationInvitation {
+  id             String       @id @default(uuid())
+  legacyClientId String       @map("legacy_client_id")
+  legacyClient   LegacyClient @relation(fields: [legacyClientId], references: [id], onDelete: Cascade)
+  tokenHash      String       @unique @map("token_hash")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  expiresAt      DateTime     @map("expires_at")
+  usedAt         DateTime?    @map("used_at")
+
+  @@index([legacyClientId])
+  @@map("client_migration_invitations")
+}
+
+/// Réservations connues côté Doinsport uniquement (pas de `Booking` V2
+/// correspondant) — importées pour deux usages distincts (ADR-0031) :
+/// (1) alimenter `AvailabilityRepository.findOccupyingBookings` en
+/// "occupations externes" (CDC §10.3, jusqu'ici non implémenté malgré le
+/// commentaire qui l'annonçait dès le Lot 8) ; (2) historique client
+/// affiché côté fiche client admin. Une réservation Legacy peut couvrir
+/// plusieurs terrains (`playgroundIds` de `LegacyBookingDto`) : aplatie en
+/// une ligne par terrain occupé plutôt qu'un tableau, pour permettre une
+/// requête directe par terrain+plage horaire (même besoin que `Booking`).
+model LegacyBooking {
+  id             String        @id @default(uuid())
+  externalId     String        @map("external_id")
+  courtId        String        @map("court_id")
+  court          Court         @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  /// Nullable : la correspondance DTO actuelle (`getBooking`) n'expose pas
+  /// encore le propriétaire Doinsport de la réservation — dépendance
+  /// explicite pour le lot d'import (voir ADR-0031), pas une omission
+  /// silencieuse ici.
+  legacyClientId String?       @map("legacy_client_id")
+  legacyClient   LegacyClient? @relation(fields: [legacyClientId], references: [externalId])
+  startAt        DateTime      @map("start_at")
+  endAt          DateTime      @map("end_at")
+  canceled       Boolean       @default(false)
+  comment        String?
+  lastSyncedAt   DateTime      @map("last_synced_at")
+  rawHash        String?       @map("raw_hash")
+
+  @@unique([externalId, courtId])
+  @@index([courtId, startAt, endAt])
+  @@index([legacyClientId])
+  @@map("legacy_bookings")
+}
+
+/// Traçabilité des exécutions du job de synchro périodique (CDC §16.2,
+/// `LEGACY_SYNC_INTERVAL_SECONDS`, jamais consommé jusqu'ici) — table
+/// dédiée plutôt que `AuditLogService` : ce n'est pas un acteur humain qui
+/// agit, et le volume/la fréquence d'un job récurrent ne doit pas polluer
+/// le journal d'audit destiné à la revue humaine (CDC §58).
+model LegacySyncRun {
+  id           String            @id @default(uuid())
+  kind         LegacySyncKind
+  status       LegacySyncStatus2 @default(RUNNING)
+  startedAt    DateTime          @default(now()) @map("started_at")
+  finishedAt   DateTime?         @map("finished_at")
+  itemsSeen    Int               @default(0) @map("items_seen")
+  itemsChanged Int               @default(0) @map("items_changed")
+  errorSummary String?           @map("error_summary")
+
+  @@index([kind, startedAt])
+  @@map("legacy_sync_runs")
+}
+
+enum LegacySyncKind {
+  CLIENTS
+  BOOKINGS
+}
+
+/// Nommée `LegacySyncStatus2` pour ne pas entrer en collision avec
+/// `LegacySyncStatus` (existant, porte le statut de sync d'une réservation
+/// individuelle créée côté V2 — concept distinct de l'issue d'une
+/// exécution de job).
+enum LegacySyncStatus2 {
+  RUNNING
+  SUCCESS
+  FAILED
+  PARTIAL
 }
 
 enum LegacySyncStatus {
