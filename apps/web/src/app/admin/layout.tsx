@@ -14,6 +14,7 @@ const NAV_LINKS: Array<{ href: string; label: string }> = [
   { href: "/admin/planning", label: "Planning" },
   { href: "/admin/bookings/new", label: "Nouvelle réservation" },
   { href: "/admin/clients", label: "Clients" },
+  { href: "/admin/legacy-clients", label: "Migration Doinsport" },
   { href: "/admin/tariffs", label: "Tarifs" },
   { href: "/admin/schedule", label: "Horaires" },
   { href: "/admin/wallets", label: "Wallets" },

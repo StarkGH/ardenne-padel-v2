@@ -474,6 +474,22 @@ export interface BookingsRevenueReport {
   summary: RevenueDay;
 }
 
+export type ClientMigrationStatus = "LEGACY_ONLY" | "INVITED" | "MIGRATION_PENDING" | "MIGRATED" | "DISABLED" | "MERGE_REQUIRED";
+
+export interface LegacyClientMigrationEntry {
+  id: string;
+  externalId: string;
+  firstName: string;
+  lastName: string;
+  email: string | null;
+  phone: string | null;
+  migrationStatus: ClientMigrationStatus;
+  mergeNote: string | null;
+  linkedUserId: string | null;
+  linkedUser: { id: string; email: string; firstName: string; lastName: string } | null;
+  lastSyncedAt: string;
+}
+
 export interface HealthIndicators {
   lastLegacySyncAt: string | null;
   legacySyncErrors: number;
