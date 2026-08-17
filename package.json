@@ -8,7 +8,8 @@
   ],
   "scripts": {
     "dev:api": "npm run dev --workspace apps/api",
-    "build": "npm run build --workspaces --if-present",
+    "build:packages": "npm run build --workspace packages/shared --workspace packages/config --workspace packages/domain",
+    "build": "npm run build:packages && npm run build --workspace apps/api --workspace apps/web",
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint .",
     "format": "prettier --write .",

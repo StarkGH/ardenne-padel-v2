@@ -1,6 +1,12 @@
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  resolve: {
+    // Résout @ardenne/* vers leur source TS live (comme `tsx --conditions=development`
+    // en dev) plutôt que vers dist/ — sinon éditer un package partagé n'aurait
+    // aucun effet sur les tests tant que `npm run build` n'a pas été rejoué.
+    conditions: ["development"],
+  },
   test: {
     environment: "node",
     setupFiles: ["./tests/setup.ts"],

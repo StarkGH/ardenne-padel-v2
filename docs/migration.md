@@ -32,6 +32,10 @@ Le paiement d'une invitation à une réservation SPLIT est un vecteur naturel de
 | 5 — Cutover | V2 source de vérité, Doinsport read-only | Annexe C entièrement cochée |
 | 6 — Extinction | Export historique, vérifications finales, arrêt Doinsport | `LEGACY_MODE=disabled` |
 
+## Staging
+
+Artefacts posés (ADR-0037, `docs/deployment.md`) : Dockerfiles API/web, `docker-compose.staging.yml`, reverse proxy Caddy (TLS automatique). Reste à provisionner : un serveur réel et un domaine (décision opérationnelle du club).
+
 ## Suivi Annexe B
 
 [`docs/annexe-b-checklist.md`](annexe-b-checklist.md) trace item par item les 44 points de l'Annexe B du CDC — statut réel (vérifié en conditions réelles / codé mais non exercé avec de vraies données externes / dette connue / bloqué), preuve associée, et identifie précisément ce qui bloque concrètement le passage à la Phase 1 (au 2026-08-17 : absence d'environnement de staging réel, et compte Stripe).

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "postinstall": "prisma generate",
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch --conditions=development src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "test": "vitest run",
@@ -13,8 +13,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
-    "seed": "tsx prisma/seed.ts",
-    "import:legacy": "tsx src/scripts/import-legacy.ts"
+    "seed": "tsx --conditions=development prisma/seed.ts",
+    "import:legacy": "tsx --conditions=development src/scripts/import-legacy.ts"
   },
   "dependencies": {
     "@ardenne/config": "0.1.0",

@@ -1,0 +1,11 @@
+{$STAGING_DOMAIN} {
+	# Toutes les routes API vivent sous /api/v1/* (apps/api/src/app.ts) —
+	# aucune réécriture de chemin nécessaire, le préfixe est transmis tel quel.
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+
+	handle {
+		reverse_proxy web:3001
+	}
+}

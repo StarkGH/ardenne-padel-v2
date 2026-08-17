@@ -1,0 +1,66 @@
+# Environnement de staging — à lancer sur le serveur cible (VPS ou équivalent),
+# jamais en local (voir docker-compose.yml pour la base Postgres de dev seule).
+# Usage : voir docs/deployment.md.
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-ardenne_padel_v2}
+    volumes:
+      - ardenne_padel_v2_staging_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file: .env.staging
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+        NEXT_PUBLIC_WEB_BASE_URL: ${NEXT_PUBLIC_WEB_BASE_URL}
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+        NEXT_PUBLIC_KIOSK_DEVICE_KEY: ${NEXT_PUBLIC_KIOSK_DEVICE_KEY}
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  # TLS automatique (Let's Encrypt) — évite de gérer des certificats à la
+  # main pour un simple environnement de staging. À remplacer par un vrai
+  # load balancer/ingress si l'infra de prod en a déjà un.
+  reverse-proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      STAGING_DOMAIN: ${STAGING_DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+
+volumes:
+  ardenne_padel_v2_staging_db:
+  caddy_data:
+  caddy_config:
