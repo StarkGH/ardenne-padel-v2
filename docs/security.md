@@ -26,7 +26,7 @@ CDC §59, §101. Revue de code auto-administrée (Lot 10, 2026-08-14) — **pas 
 | Aucune stacktrace brute côté client | ✅ Fait | [`error-handler.ts`](../apps/api/src/http/error-handler.ts) — toute erreur non anticipée devient un message générique 500, jamais la stack (en place depuis le Lot 1) |
 | Endpoints Terminal ConnectionToken strictement authentifiés | ✅ Fait | `requireKioskAuth` sur `/terminal/*` (Lot 7) |
 | QR tokens opaques, courts, hashés en base | ✅ Fait | `KioskCheckoutSession.tokenHash`, jamais le token brut stocké (Lot 7) |
-| Dispositifs kiosque enregistrés et révocables | ⚠️ Partiel | `KioskDeviceService.revoke()` existe (Lot 7) mais **aucune route ne l'expose** — gap identifié au Lot 9 (ADR-0017), non comblé. Un admin ne peut révoquer un kiosque qu'en écrivant du code, pas via l'API |
+| Dispositifs kiosque enregistrés et révocables | ✅ Fait | `KioskDeviceService.revoke()` (Lot 7) exposé via `POST /admin/kiosk-devices/:id/revoke` (Frontend Lot 7, ADR-0025) — gap identifié au Lot 9 (ADR-0017), comblé depuis |
 
 ## §59.3 — Secrets
 
@@ -48,10 +48,9 @@ CDC §59, §101. Revue de code auto-administrée (Lot 10, 2026-08-14) — **pas 
 
 ## Synthèse
 
-**16 exigences sur 20 pleinement satisfaites.** 4 partielles/hors contrôle :
+**17 exigences sur 20 pleinement satisfaites** *(mise à jour 2026-08-17 : révocation kiosque comblée depuis, voir Frontend Lot 7/ADR-0025)*. 3 partielles/hors contrôle :
 1. CSRF — mitigation SameSite jugée suffisante pour l'architecture actuelle, pas un token dédié.
-2. Révocation kiosque — service existant, route manquante (gap Lot 7/9).
-3. Clés test/prod distinctes — non vérifiable sans compte Stripe réel.
-4. Privilèges du compte Doinsport — décision opérationnelle externe au code.
+2. Clés test/prod distinctes — non vérifiable sans compte Stripe réel.
+3. Privilèges du compte Doinsport — décision opérationnelle externe au code.
 
-Aucune de ces quatre lacunes n'est bloquante pour continuer le développement ; toutes doivent être revues avant un pilote avec de vrais utilisateurs (Annexe B : "Security review").
+Aucune de ces trois lacunes n'est bloquante pour continuer le développement ; toutes doivent être revues avant un pilote avec de vrais utilisateurs (Annexe B : "Security review") — cette revue reste **auto-administrée**, pas un audit externe (voir `docs/annexe-b-checklist.md`).

@@ -25,12 +25,16 @@ Le paiement d'une invitation à une réservation SPLIT est un vecteur naturel de
 | Phase | Contenu | Sortie |
 |---|---|---|
 | 0 — Développement | V2 non exposée, Stripe test, Doinsport test contrôlé | Suite de tests verte, staging fonctionnel |
-| 1 — Interne | Comptes staff, réservations test, parcours complet | Aucune anomalie critique sur parcours complet |
+| 1 — Interne | Comptes staff, réservations test, parcours complet | Aucune anomalie critique sur parcours complet, [`docs/annexe-b-checklist.md`](annexe-b-checklist.md) majoritairement verte |
 | 2 — Pilote | Groupe réduit de joueurs réguliers invités | Cutover checklist partielle validée sur volume pilote |
 | 3 — Extension | Cohortes progressives, monitoring quotidien | Taux d'erreur acceptable maintenu à volume croissant |
 | 4 — Généralisation | Tous les nouveaux utilisateurs sur V2, campagne de migration | Majorité du volume actif sur V2 |
 | 5 — Cutover | V2 source de vérité, Doinsport read-only | Annexe C entièrement cochée |
 | 6 — Extinction | Export historique, vérifications finales, arrêt Doinsport | `LEGACY_MODE=disabled` |
+
+## Suivi Annexe B
+
+[`docs/annexe-b-checklist.md`](annexe-b-checklist.md) trace item par item les 44 points de l'Annexe B du CDC — statut réel (vérifié en conditions réelles / codé mais non exercé avec de vraies données externes / dette connue / bloqué), preuve associée, et identifie précisément ce qui bloque concrètement le passage à la Phase 1 (au 2026-08-17 : absence d'environnement de staging réel, et compte Stripe).
 
 ## Ne jamais couper Doinsport "parce que ça semble marcher"
 
