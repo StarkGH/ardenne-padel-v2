@@ -45,3 +45,13 @@ L'écran accepte n'importe quel `ClientMigrationStatus` en query param (`GET /ad
 **Positif :** vérifié en direct de bout en bout — client `MERGE_REQUIRED` inséré manuellement, recherche du bon compte V2, liaison confirmée (disparaît de l'onglet "Conflit à valider", réapparaît sous "Migré" avec le compte lié affiché), action tracée dans le journal d'audit (`LEGACY_CLIENT_LINKED`). 7 nouveaux tests backend (244 au total, 40 fichiers verts). Build et lint propres.
 
 **Négatif / dette assumée :** pas de vue groupée montrant plusieurs candidats simultanément avec un score de correspondance — l'admin doit rechercher manuellement le bon compte à chaque fois, même quand le `mergeNote` mentionne déjà les comptes candidats trouvés par la déduplication automatique. Pas de lien direct depuis un `mergeNote` vers les comptes V2 qu'il cite.
+
+## Addendum (2026-08-17) — Historique des imports (`LegacySyncRun`) sur l'écran de synchro existant
+
+Le script d'import (ADR-0032) écrit déjà un `LegacySyncRun` par exécution (kind, status, itemsSeen/itemsChanged, errorSummary) mais rien ne l'affichait — invisible en dehors des logs serveur ou d'une requête SQL manuelle.
+
+**Décision :** extension de l'écran `/admin/sync` existant (CDC §55 écran 21, anomalies de synchro V2→Doinsport par réservation) plutôt qu'un nouvel écran/nouveau lien de nav, avec une seconde section "Imports récents" en dessous de la liste d'anomalies. Les deux sections couvrent des directions différentes du même sujet (santé de la synchro Doinsport dans son ensemble) — regrouper évite d'ajouter un item de nav de plus pour un concept déjà voisin, sans faire de l'écran une vraie fusion (aucune donnée partagée entre les deux sections).
+
+`LegacyMigrationAdminService.listSyncRuns(limit = 20)` — simple lecture triée par `startedAt desc`, plafonnée. Nouvelle route `GET /admin/legacy-sync-runs` (rôle STAFF, cohérent avec le reste de l'écran). Pas d'action associée (pas de "relancer" depuis cet écran) : le script d'import reste un outil opéré manuellement en CLI, hors périmètre de cet écran de simple consultation.
+
+Vérifié en direct : deux `LegacySyncRun` insérés en base (un `SUCCESS` clients, un `PARTIAL` réservations avec `errorSummary`), les deux s'affichent correctement avec statut coloré, horodatage, compteurs et résumé d'erreur. 1 nouveau test backend (245 au total, 40 fichiers verts).

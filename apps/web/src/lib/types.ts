@@ -458,6 +458,17 @@ export interface AdminSettings {
   pilot: { pilotModeEnabled: boolean };
 }
 
+export interface LegacySyncRunEntry {
+  id: string;
+  kind: "CLIENTS" | "BOOKINGS";
+  status: "RUNNING" | "SUCCESS" | "FAILED" | "PARTIAL";
+  startedAt: string;
+  finishedAt: string | null;
+  itemsSeen: number;
+  itemsChanged: number;
+  errorSummary: string | null;
+}
+
 export interface RevenueDay {
   date: string;
   bookingsCount: number;

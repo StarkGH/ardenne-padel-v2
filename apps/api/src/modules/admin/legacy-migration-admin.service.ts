@@ -23,6 +23,14 @@ export class LegacyMigrationAdminService {
     });
   }
 
+  /** CDC §55 écran 21 (section import) — historique des exécutions de `npm run import:legacy`. */
+  async listSyncRuns(limit = 20) {
+    return this.db.legacySyncRun.findMany({
+      orderBy: { startedAt: "desc" },
+      take: limit,
+    });
+  }
+
   /**
    * Lien manuel décidé par un humain (CDC §7.5, priorité 3 : "validation
    * manuelle administrateur en cas de conflit"). Autorisé depuis

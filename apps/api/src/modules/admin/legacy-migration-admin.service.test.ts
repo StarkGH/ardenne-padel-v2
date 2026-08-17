@@ -127,6 +127,21 @@ describe("LegacyMigrationAdminService", () => {
     expect(entries.some((e) => e.action === "LEGACY_CLIENT_RESET")).toBe(true);
   });
 
+  it("lists sync runs most recent first, capped to the requested limit", async () => {
+    const older = await prisma.legacySyncRun.create({ data: { kind: "CLIENTS" } });
+    await prisma.legacySyncRun.update({ where: { id: older.id }, data: { status: "SUCCESS", finishedAt: new Date(), itemsSeen: 1090, itemsChanged: 12 } });
+    await new Promise((r) => setTimeout(r, 5));
+    const newer = await prisma.legacySyncRun.create({ data: { kind: "BOOKINGS" } });
+    await prisma.legacySyncRun.update({ where: { id: newer.id }, data: { status: "PARTIAL", finishedAt: new Date(), itemsSeen: 49, itemsChanged: 49, errorSummary: "2 réservation(s) en échec" } });
+
+    const service = buildService();
+    const runs = await service.listSyncRuns(1);
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0]!.id).toBe(newer.id);
+    expect(runs[0]!.status).toBe("PARTIAL");
+  });
+
   it("rejects operations on an unknown Legacy client", async () => {
     const service = buildService();
     const unknownId = "00000000-0000-0000-0000-000000000000";

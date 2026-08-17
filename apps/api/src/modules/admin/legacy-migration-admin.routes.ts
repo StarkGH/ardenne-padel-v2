@@ -58,5 +58,13 @@ export function createLegacyMigrationAdminRouter(service: LegacyMigrationAdminSe
     }
   });
 
+  router.get("/admin/legacy-sync-runs", requireAuth, requireRole("STAFF"), async (_req, res, next) => {
+    try {
+      res.status(200).json({ data: await service.listSyncRuns() });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   return router;
 }
