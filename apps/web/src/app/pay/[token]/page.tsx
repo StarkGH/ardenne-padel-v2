@@ -2,8 +2,11 @@
 
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Elements, CardElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { api, ApiError } from "@/lib/api";
 import { useSession } from "@/lib/session-context";
+import { getStripe } from "@/lib/stripe";
+import { StripeCardField } from "@/components/stripe-card-field";
 import { Button, Card, ErrorBanner, InfoBanner, PriceTag, Spinner } from "@/components/ui";
 import type { InvitationShare } from "@/lib/types";
 
@@ -11,8 +14,18 @@ type FundingSource = "WALLET" | "EXTERNAL";
 
 // CDC §54 écran 20 — paiement via invitation (part d'une réservation partagée).
 export default function PayInvitationPage({ params }: { params: Promise<{ token: string }> }) {
+  return (
+    <Elements stripe={getStripe()}>
+      <PayInvitationForm params={params} />
+    </Elements>
+  );
+}
+
+function PayInvitationForm({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
   const router = useRouter();
+  const stripe = useStripe();
+  const elements = useElements();
   const { user, loading: sessionLoading } = useSession();
   const [share, setShare] = useState<InvitationShare | null>(null);
   const [loading, setLoading] = useState(true);
@@ -39,10 +52,25 @@ export default function PayInvitationPage({ params }: { params: Promise<{ token:
     setError(null);
     setUnconfigured(false);
     try {
-      await api.post(`/booking-shares/${token}/pay`, {
-        fundingSource,
-        paymentMethodId: fundingSource === "EXTERNAL" ? "pm_card_visa" : undefined,
-      });
+      let paymentMethodId: string | undefined;
+      if (fundingSource === "EXTERNAL") {
+        if (!stripe || !elements) {
+          setUnconfigured(true);
+          return;
+        }
+        const card = elements.getElement(CardElement);
+        if (!card) {
+          setError("Formulaire de carte indisponible, réessayez.");
+          return;
+        }
+        const { paymentMethod, error: stripeError } = await stripe.createPaymentMethod({ type: "card", card });
+        if (stripeError || !paymentMethod) {
+          setError(stripeError?.message ?? "Carte invalide.");
+          return;
+        }
+        paymentMethodId = paymentMethod.id;
+      }
+      await api.post(`/booking-shares/${token}/pay`, { fundingSource, paymentMethodId });
       setPaid(true);
     } catch (err) {
       if (err instanceof ApiError && err.code === "STRIPE_NOT_CONFIGURED") {
@@ -104,6 +132,13 @@ export default function PayInvitationPage({ params }: { params: Promise<{ token:
           </button>
         </div>
       </section>
+
+      {fundingSource === "EXTERNAL" && (
+        <section>
+          <h2 className="mb-2 text-sm font-semibold text-slate-500">Carte bancaire</h2>
+          <StripeCardField />
+        </section>
+      )}
 
       {unconfigured && (
         <InfoBanner message="Le paiement en ligne n'est pas encore configuré pour ce club (aucun compte Stripe actif pour l'instant)." />

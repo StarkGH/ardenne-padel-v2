@@ -86,6 +86,10 @@ export class StripePaymentProvider implements PaymentProvider {
         payment_method: input.paymentMethodId,
         confirm: true,
         capture_method: "manual",
+        // Confirmation synchrone sans return_url (pas de flux de redirection ici) —
+        // exclut les moyens de paiement à redirection (Bancontact, iDEAL, ...)
+        // même s'ils sont activés côté Dashboard (CDC §21.2).
+        automatic_payment_methods: { enabled: true, allow_redirects: "never" },
       },
       { idempotencyKey: input.idempotencyKey },
     );
@@ -122,6 +126,7 @@ export class StripePaymentProvider implements PaymentProvider {
         confirm: true,
         capture_method: "manual",
         off_session: true,
+        automatic_payment_methods: { enabled: true, allow_redirects: "never" },
       },
       { idempotencyKey: input.idempotencyKey },
     );

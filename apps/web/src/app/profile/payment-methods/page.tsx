@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Elements, CardElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { api, ApiError } from "@/lib/api";
 import { useSession } from "@/lib/session-context";
+import { getStripe } from "@/lib/stripe";
+import { StripeCardField } from "@/components/stripe-card-field";
 import { Button, Card, ErrorBanner, InfoBanner, Spinner } from "@/components/ui";
 import type { PaymentMethod } from "@/lib/types";
 
@@ -15,13 +18,29 @@ const BRAND_LABELS: Record<string, string> = {
 
 // CDC §54 écran 19 — gestion des moyens de paiement.
 export default function PaymentMethodsPage() {
+  return (
+    <Elements stripe={getStripe()}>
+      <PaymentMethodsScreen />
+    </Elements>
+  );
+}
+
+function PaymentMethodsScreen() {
   const { user, loading: sessionLoading } = useSession();
   const router = useRouter();
+  const stripe = useStripe();
+  const elements = useElements();
   const [methods, setMethods] = useState<PaymentMethod[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [unconfigured, setUnconfigured] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [addingCard, setAddingCard] = useState(false);
+  const [startingSetup, setStartingSetup] = useState(false);
+  const [setupClientSecret, setSetupClientSecret] = useState<string | null>(null);
+  const [confirmingSetup, setConfirmingSetup] = useState(false);
+
+  function reloadMethods() {
+    return api.get<PaymentMethod[]>("/me/payment-methods").then(setMethods);
+  }
 
   useEffect(() => {
     if (sessionLoading) return;
@@ -29,10 +48,8 @@ export default function PaymentMethodsPage() {
       router.push("/login?next=/profile/payment-methods");
       return;
     }
-    api
-      .get<PaymentMethod[]>("/me/payment-methods")
-      .then(setMethods)
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Impossible de charger les moyens de paiement."));
+    reloadMethods().catch((err) => setError(err instanceof ApiError ? err.message : "Impossible de charger les moyens de paiement."));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, sessionLoading, router]);
 
   async function handleDelete(id: string) {
@@ -48,15 +65,16 @@ export default function PaymentMethodsPage() {
     }
   }
 
-  async function handleAddCard() {
-    setAddingCard(true);
+  async function handleStartAddCard() {
+    setStartingSetup(true);
     setError(null);
     setUnconfigured(false);
     try {
-      // CDC §25.1 : POST /payments/setup renvoie un SetupIntent Stripe à
-      // confirmer côté client (Stripe.js/Elements) — pas encore câblé faute
-      // de compte Stripe (ADR-0010), même limite que le reste du parcours.
-      await api.post("/payments/setup");
+      // CDC §25.1 : le SetupIntent est créé côté serveur, confirmé côté
+      // client (Stripe.js) — la carte elle-même ne transite jamais par
+      // notre backend (CDC §2.6).
+      const { clientSecret } = await api.post<{ setupIntentId: string; clientSecret: string }>("/payments/setup");
+      setSetupClientSecret(clientSecret);
     } catch (err) {
       if (err instanceof ApiError && err.code === "STRIPE_NOT_CONFIGURED") {
         setUnconfigured(true);
@@ -64,7 +82,31 @@ export default function PaymentMethodsPage() {
         setError(err instanceof ApiError ? err.message : "Impossible de démarrer l'ajout d'une carte.");
       }
     } finally {
-      setAddingCard(false);
+      setStartingSetup(false);
+    }
+  }
+
+  async function handleConfirmAddCard() {
+    if (!stripe || !elements || !setupClientSecret) return;
+    setConfirmingSetup(true);
+    setError(null);
+    try {
+      const card = elements.getElement(CardElement);
+      if (!card) {
+        setError("Formulaire de carte indisponible, réessayez.");
+        return;
+      }
+      const { error: stripeError } = await stripe.confirmCardSetup(setupClientSecret, { payment_method: { card } });
+      if (stripeError) {
+        setError(stripeError.message ?? "Carte invalide.");
+        return;
+      }
+      setSetupClientSecret(null);
+      await reloadMethods();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Impossible d'enregistrer cette carte.");
+    } finally {
+      setConfirmingSetup(false);
     }
   }
 
@@ -102,9 +144,29 @@ export default function PaymentMethodsPage() {
         ))}
       </div>
 
-      <Button variant="secondary" onClick={handleAddCard} disabled={addingCard}>
-        {addingCard ? "..." : "Ajouter une carte"}
-      </Button>
+      {setupClientSecret ? (
+        <div className="flex flex-col gap-3 rounded-xl border border-slate-200 p-3">
+          <h2 className="text-sm font-semibold text-slate-500">Carte bancaire</h2>
+          <StripeCardField />
+          <div className="flex gap-2">
+            <Button onClick={handleConfirmAddCard} disabled={confirmingSetup}>
+              {confirmingSetup ? "..." : "Enregistrer cette carte"}
+            </Button>
+            <Button
+              variant="secondary"
+              className="w-auto shrink-0"
+              onClick={() => setSetupClientSecret(null)}
+              disabled={confirmingSetup}
+            >
+              Annuler
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button variant="secondary" onClick={handleStartAddCard} disabled={startingSetup}>
+          {startingSetup ? "..." : "Ajouter une carte"}
+        </Button>
+      )}
     </div>
   );
 }

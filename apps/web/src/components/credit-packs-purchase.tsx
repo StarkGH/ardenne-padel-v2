@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Elements, CardElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { api, ApiError } from "@/lib/api";
 import { useSession } from "@/lib/session-context";
+import { getStripe } from "@/lib/stripe";
+import { StripeCardField } from "@/components/stripe-card-field";
 import { Button, Card, ErrorBanner, InfoBanner, PriceTag, Spinner } from "@/components/ui";
 import type { CreditPack, CreditPackPurchaseResult } from "@/lib/types";
 
@@ -13,7 +16,15 @@ import type { CreditPack, CreditPackPurchaseResult } from "@/lib/types";
  * (écran kiosque 8, CDC §54.1) — même parcours d'achat, seule la coquille
  * autour change (route de connexion, destination après achat).
  */
-export function CreditPacksPurchase({
+export function CreditPacksPurchase(props: { title: string; loginNext: string; confirmedHref: string; confirmedLabel: string }) {
+  return (
+    <Elements stripe={getStripe()}>
+      <CreditPacksPurchaseForm {...props} />
+    </Elements>
+  );
+}
+
+function CreditPacksPurchaseForm({
   title,
   loginNext,
   confirmedHref,
@@ -26,7 +37,10 @@ export function CreditPacksPurchase({
 }) {
   const { user, loading: sessionLoading } = useSession();
   const router = useRouter();
+  const stripe = useStripe();
+  const elements = useElements();
   const [packs, setPacks] = useState<CreditPack[] | null>(null);
+  const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [unconfigured, setUnconfigured] = useState(false);
@@ -48,9 +62,21 @@ export function CreditPacksPurchase({
     setError(null);
     setUnconfigured(false);
     try {
-      // CDC §21.1 : pas d'intégration Stripe Elements réelle sans compte
-      // Stripe (ADR-0010), même limite que le reste du parcours de paiement.
-      const result = await api.post<CreditPackPurchaseResult>(`/credit-packs/${packId}/purchase`, { paymentMethodId: "pm_card_visa" });
+      if (!stripe || !elements) {
+        setUnconfigured(true);
+        return;
+      }
+      const card = elements.getElement(CardElement);
+      if (!card) {
+        setError("Formulaire de carte indisponible, réessayez.");
+        return;
+      }
+      const { paymentMethod, error: stripeError } = await stripe.createPaymentMethod({ type: "card", card });
+      if (stripeError || !paymentMethod) {
+        setError(stripeError?.message ?? "Carte invalide.");
+        return;
+      }
+      const result = await api.post<CreditPackPurchaseResult>(`/credit-packs/${packId}/purchase`, { paymentMethodId: paymentMethod.id });
       if (!result.requiresAction) {
         setPurchasedPackId(packId);
       }
@@ -88,19 +114,31 @@ export function CreditPacksPurchase({
 
       <div className="flex flex-col gap-3">
         {packs.map((pack) => (
-          <Card key={pack.id} className="flex items-center justify-between gap-3">
-            <div>
-              <p className="font-semibold">{pack.name}</p>
-              <p className="text-sm text-slate-600">
-                <PriceTag cents={pack.paidCreditsCents} /> de crédits
-                {pack.bonusCreditsCents > 0 && (
-                  <span className="text-emerald-700"> + <PriceTag cents={pack.bonusCreditsCents} /> offerts</span>
-                )}
-              </p>
+          <Card key={pack.id} className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="font-semibold">{pack.name}</p>
+                <p className="text-sm text-slate-600">
+                  <PriceTag cents={pack.paidCreditsCents} /> de crédits
+                  {pack.bonusCreditsCents > 0 && (
+                    <span className="text-emerald-700"> + <PriceTag cents={pack.bonusCreditsCents} /> offerts</span>
+                  )}
+                </p>
+              </div>
+              {selectedPackId !== pack.id && (
+                <Button className="w-auto shrink-0" variant="secondary" onClick={() => setSelectedPackId(pack.id)}>
+                  <PriceTag cents={pack.purchaseAmountCents} />
+                </Button>
+              )}
             </div>
-            <Button className="w-auto shrink-0" onClick={() => handlePurchase(pack.id)} disabled={purchasingId === pack.id}>
-              {purchasingId === pack.id ? "..." : <PriceTag cents={pack.purchaseAmountCents} />}
-            </Button>
+            {selectedPackId === pack.id && (
+              <div className="flex flex-col gap-3 border-t border-slate-100 pt-3">
+                <StripeCardField />
+                <Button onClick={() => handlePurchase(pack.id)} disabled={purchasingId === pack.id}>
+                  {purchasingId === pack.id ? "..." : <>Payer <PriceTag cents={pack.purchaseAmountCents} /></>}
+                </Button>
+              </div>
+            )}
           </Card>
         ))}
         {packs.length === 0 && <p className="text-sm text-slate-500">Aucun pack disponible pour l&apos;instant.</p>}

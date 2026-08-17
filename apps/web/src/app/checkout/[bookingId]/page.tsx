@@ -2,8 +2,11 @@
 
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Elements, CardElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { api, ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/datetime";
+import { getStripe } from "@/lib/stripe";
+import { StripeCardField } from "@/components/stripe-card-field";
 import { Button, Card, ErrorBanner, InfoBanner, PriceTag, Spinner, TextInput } from "@/components/ui";
 import type { Booking, BookingParticipant, CheckoutResult, GuaranteeType, SplitCheckoutResult, SplitPreview, WalletBalance } from "@/lib/types";
 
@@ -35,13 +38,19 @@ export default function CheckoutPage({ params }: { params: Promise<{ bookingId: 
     );
   }
 
-  return booking.paymentMode === "SPLIT" ? <SplitCheckout booking={booking} /> : <FullCheckout booking={booking} />;
+  return (
+    <Elements stripe={getStripe()}>
+      {booking.paymentMode === "SPLIT" ? <SplitCheckout booking={booking} /> : <FullCheckout booking={booking} />}
+    </Elements>
+  );
 }
 
 // CDC §54 écran 9, Annexe B "paiement mixte wallet + externe" — le wallet
 // s'applique d'abord, la carte ne couvre que le solde restant (CDC §28.7).
 function FullCheckout({ booking }: { booking: Booking }) {
   const router = useRouter();
+  const stripe = useStripe();
+  const elements = useElements();
   const [wallet, setWallet] = useState<WalletBalance | null>(null);
   const [useWallet, setUseWallet] = useState(false);
   const [paying, setPaying] = useState(false);
@@ -63,13 +72,32 @@ function FullCheckout({ booking }: { booking: Booking }) {
     setError(null);
     setUnconfigured(false);
     try {
-      // CDC §21.1 : pas d'intégration Stripe Elements réelle sans compte
-      // Stripe (ADR-0010) — `paymentMethodId` est un identifiant de test, le
-      // reste du parcours est câblé contre l'API réelle. Envoyé même à 0 €
-      // restant : le backend l'ignore si le wallet couvre déjà tout (§28.8).
+      // CDC §2.6 : aucune donnée carte ne transite par notre backend — la
+      // carte n'est créée côté client (Stripe.js) que s'il reste un solde à
+      // régler par carte ; sinon `paymentMethodId` reste absent (§28.8, le
+      // backend ignore ce champ si le wallet couvre déjà tout).
+      let paymentMethodId: string | undefined;
+      if (remainingCents > 0) {
+        if (!stripe || !elements) {
+          setUnconfigured(true);
+          return;
+        }
+        const card = elements.getElement(CardElement);
+        if (!card) {
+          setError("Formulaire de carte indisponible, réessayez.");
+          return;
+        }
+        const { paymentMethod, error: stripeError } = await stripe.createPaymentMethod({ type: "card", card });
+        if (stripeError || !paymentMethod) {
+          setError(stripeError?.message ?? "Carte invalide.");
+          return;
+        }
+        paymentMethodId = paymentMethod.id;
+      }
+
       const result = await api.post<CheckoutResult>("/payments/checkout", {
         bookingId: booking.id,
-        paymentMethodId: "pm_card_visa",
+        paymentMethodId,
         applyWalletCents: walletAppliedCents > 0 ? walletAppliedCents : undefined,
       });
       if (result.bookingStatus === "CONFIRMED") {
@@ -115,11 +143,8 @@ function FullCheckout({ booking }: { booking: Booking }) {
 
       {remainingCents > 0 && (
         <section>
-          <h2 className="mb-2 text-sm font-semibold text-slate-500">Moyen de paiement</h2>
-          <Card className="flex items-center gap-3">
-            <input type="radio" checked readOnly className="h-5 w-5 accent-emerald-600" />
-            <span className="text-base font-medium">Carte bancaire</span>
-          </Card>
+          <h2 className="mb-2 text-sm font-semibold text-slate-500">Carte bancaire</h2>
+          <StripeCardField />
         </section>
       )}
 
@@ -151,6 +176,8 @@ function FullCheckout({ booking }: { booking: Booking }) {
 // CDC §21-§26, §54 écrans 21-23 — garantie du split, consentement au débit futur, frais avant validation.
 function SplitCheckout({ booking }: { booking: Booking }) {
   const router = useRouter();
+  const stripe = useStripe();
+  const elements = useElements();
   const [preview, setPreview] = useState<SplitPreview | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(true);
   const [guaranteeType, setGuaranteeType] = useState<GuaranteeType>("WALLET_RESERVE");
@@ -229,9 +256,24 @@ function SplitCheckout({ booking }: { booking: Booking }) {
     setError(null);
     setUnconfigured(false);
     try {
+      if (!stripe || !elements) {
+        setUnconfigured(true);
+        return;
+      }
+      const card = elements.getElement(CardElement);
+      if (!card) {
+        setError("Formulaire de carte indisponible, réessayez.");
+        return;
+      }
+      const { paymentMethod, error: stripeError } = await stripe.createPaymentMethod({ type: "card", card });
+      if (stripeError || !paymentMethod) {
+        setError(stripeError?.message ?? "Carte invalide.");
+        return;
+      }
+
       const result = await api.post<SplitCheckoutResult>("/payments/checkout", {
         bookingId: booking.id,
-        paymentMethodId: "pm_card_visa",
+        paymentMethodId: paymentMethod.id,
         guaranteeType,
       });
       if (result.bookingStatus === "CONFIRMED") {
@@ -361,6 +403,11 @@ function SplitCheckout({ booking }: { booking: Booking }) {
               </label>
             </Card>
           )}
+
+          <section>
+            <h2 className="mb-2 text-sm font-semibold text-slate-500">Carte bancaire</h2>
+            <StripeCardField />
+          </section>
 
           {unconfigured && (
             <InfoBanner message="Le paiement en ligne n'est pas encore configuré pour ce club (aucun compte Stripe actif pour l'instant). Cette page reste fonctionnelle et se connectera automatiquement dès qu'une clé Stripe sera configurée." />

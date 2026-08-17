@@ -22,6 +22,7 @@ export interface StripeClientPort {
       confirm: boolean;
       capture_method: "manual";
       off_session?: boolean;
+      automatic_payment_methods?: { enabled: true; allow_redirects: "never" };
     }, options: { idempotencyKey: string }): Promise<StripePaymentIntentLike>;
     capture(id: string): Promise<StripePaymentIntentLike>;
     cancel(id: string): Promise<StripePaymentIntentLike>;

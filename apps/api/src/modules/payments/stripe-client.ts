@@ -43,6 +43,7 @@ export function createRealStripeClient(secretKey: string): StripeClientPort {
             confirm: params.confirm,
             capture_method: params.capture_method,
             off_session: params.off_session,
+            automatic_payment_methods: params.automatic_payment_methods,
           },
           { idempotencyKey: options.idempotencyKey },
         );
