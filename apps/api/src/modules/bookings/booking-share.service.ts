@@ -100,7 +100,7 @@ export class BookingShareService {
     const expiresAt = new Date(Date.now() + this.config.SPLIT_INVITATION_TTL_HOURS * 3600_000);
     await this.repo.setInvitation(shareId, hash, expiresAt);
 
-    const url = `${this.config.PUBLIC_BASE_URL}/booking-shares/${raw}`;
+    const url = `${this.config.PUBLIC_BASE_URL}/pay/${raw}`;
     await this.emailSender.sendSplitInvitationEmail(email, url);
     logger.info({ event: "SplitInvitationSent", shareId }, "invitation de paiement partagé envoyée");
   }

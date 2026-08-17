@@ -38,7 +38,7 @@ class CapturingEmailSender implements EmailSender {
 }
 
 function tokenFromUrl(url: string): string {
-  return url.split("/booking-shares/")[1]!;
+  return url.split("/pay/")[1]!;
 }
 
 describe("SplitCheckoutService — orchestration CDC §26", () => {
