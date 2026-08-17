@@ -12,6 +12,7 @@ const ADMIN_ROLES: Role[] = ["STAFF", "ADMIN", "SUPER_ADMIN"];
 const NAV_LINKS: Array<{ href: string; label: string }> = [
   { href: "/admin/dashboard", label: "Tableau de bord" },
   { href: "/admin/planning", label: "Planning" },
+  { href: "/admin/bookings/new", label: "Nouvelle réservation" },
   { href: "/admin/clients", label: "Clients" },
   { href: "/admin/tariffs", label: "Tarifs" },
   { href: "/admin/schedule", label: "Horaires" },

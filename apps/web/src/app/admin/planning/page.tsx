@@ -5,7 +5,7 @@ import { DateTime } from "luxon";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { DISPLAY_TIMEZONE, formatTimeRange } from "@/lib/datetime";
-import { Card, ErrorBanner, Spinner } from "@/components/ui";
+import { Button, Card, ErrorBanner, Spinner } from "@/components/ui";
 import type { AdminBooking, Court } from "@/lib/types";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -44,7 +44,14 @@ export default function AdminPlanningPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-xl font-bold">Planning multi-terrains</h1>
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-xl font-bold">Planning multi-terrains</h1>
+        <Link href="/admin/bookings/new">
+          <Button className="w-auto shrink-0" variant="secondary">
+            + Nouvelle réservation
+          </Button>
+        </Link>
+      </div>
       <input
         type="date"
         value={dateISO}

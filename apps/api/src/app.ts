@@ -290,6 +290,7 @@ export function createApp({
     auditLogService,
     bookingsService,
     identityRepository,
+    courtsRepository,
   );
   const refundService = new RefundService(paymentsRepository, payments, notificationService);
   const paymentsAdminService = new PaymentsAdminService(refundService, auditLogService, paymentsRepository);

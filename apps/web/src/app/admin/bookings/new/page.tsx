@@ -6,7 +6,7 @@ import { DateTime } from "luxon";
 import { api, ApiError } from "@/lib/api";
 import { combineDateAndTimeToIso, DISPLAY_TIMEZONE, formatDayLabel } from "@/lib/datetime";
 import { Button, Card, ErrorBanner, Field, PriceTag, Spinner, TextInput } from "@/components/ui";
-import type { AvailabilitySlot, ClientSearchResult, Court, CourtType, PricingQuote } from "@/lib/types";
+import type { AdminBooking, AvailabilitySlot, ClientSearchResult, Court, CourtType, PricingQuote } from "@/lib/types";
 
 // CDC §55 écran 5 — Création réservation (téléphone/guichet) pour un client existant.
 export default function AdminNewBookingPage() {
@@ -100,16 +100,7 @@ export default function AdminNewBookingPage() {
   const selectedSlot = availability.find((s) => s.startTime === startTime) ?? null;
 
   if (created) {
-    return (
-      <Card className="flex flex-col gap-3">
-        <h1 className="text-xl font-bold">Réservation créée</h1>
-        <p className="text-sm text-slate-600">
-          La réservation est en attente de paiement (CHECKOUT_PENDING) — le client peut la régler en ligne, ou un règlement peut
-          être suivi manuellement.
-        </p>
-        <Button onClick={() => router.push(`/admin/bookings/${created.id}`)}>Voir la réservation</Button>
-      </Card>
-    );
+    return <ParticipantsStep bookingId={created.id} />;
   }
 
   return (
@@ -280,6 +271,107 @@ export default function AdminNewBookingPage() {
           </Button>
         </Card>
       )}
+    </div>
+  );
+}
+
+// CDC §55 écran 5 — ajout des autres joueurs juste après création, tant que la
+// réservation reste modifiable (DRAFT/CHECKOUT_PENDING), avant de passer au
+// suivi de paiement.
+function ParticipantsStep({ bookingId }: { bookingId: string }) {
+  const router = useRouter();
+  const [booking, setBooking] = useState<AdminBooking | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [newName, setNewName] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [participantError, setParticipantError] = useState<string | null>(null);
+
+  function reload() {
+    api
+      .get<AdminBooking>(`/admin/bookings/${bookingId}`)
+      .then(setBooking)
+      .catch((err) => setLoadError(err instanceof ApiError ? err.message : "Réservation introuvable."))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(reload, [bookingId]);
+
+  if (loading) return <Spinner />;
+  if (loadError || !booking) return <ErrorBanner message={loadError} />;
+
+  const activeParticipants = (booking.participants ?? []).filter((p) => p.status !== "REMOVED");
+  const maxParticipants = (booking.court?.capacity ?? 4) - 1;
+  const canAddParticipant = activeParticipants.length < maxParticipants;
+
+  async function handleAdd() {
+    if (!newName.trim() || !newEmail.trim()) return;
+    setSaving(true);
+    setParticipantError(null);
+    try {
+      await api.post(`/admin/bookings/${bookingId}/participants`, { displayName: newName, invitedEmail: newEmail });
+      setNewName("");
+      setNewEmail("");
+      reload();
+    } catch (err) {
+      setParticipantError(err instanceof ApiError ? err.message : "Impossible d'ajouter ce joueur.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRemove(participantId: string) {
+    setParticipantError(null);
+    try {
+      await api.delete(`/admin/bookings/${bookingId}/participants/${participantId}`);
+      reload();
+    } catch (err) {
+      setParticipantError(err instanceof ApiError ? err.message : "Impossible de retirer ce joueur.");
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <Card className="flex flex-col gap-3">
+        <h1 className="text-xl font-bold">Réservation créée</h1>
+        <p className="text-sm text-slate-600">
+          La réservation est en attente de paiement (CHECKOUT_PENDING) — le client peut la régler en ligne, ou un règlement peut
+          être suivi manuellement.
+        </p>
+      </Card>
+
+      <section>
+        <h2 className="mb-2 text-sm font-semibold text-slate-500">
+          Joueurs <span className="font-normal text-slate-400">({activeParticipants.length}/{maxParticipants})</span>
+        </h2>
+        <div className="flex flex-col gap-3">
+          {activeParticipants.map((p) => (
+            <Card key={p.id} className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">{p.displayName}</p>
+                {p.invitedEmail && <p className="text-xs text-slate-500">{p.invitedEmail}</p>}
+              </div>
+              <button onClick={() => handleRemove(p.id)} className="text-xs text-red-600">
+                Retirer
+              </button>
+            </Card>
+          ))}
+          {activeParticipants.length === 0 && <p className="text-xs text-slate-500">Aucun autre joueur pour l&apos;instant.</p>}
+          {canAddParticipant && (
+            <Card className="flex flex-col gap-2">
+              <TextInput placeholder="Nom" value={newName} onChange={(e) => setNewName(e.target.value)} />
+              <TextInput placeholder="E-mail" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+              <Button variant="secondary" onClick={handleAdd} disabled={saving || !newName.trim() || !newEmail.trim()}>
+                {saving ? "..." : "+ Ajouter un joueur"}
+              </Button>
+            </Card>
+          )}
+          <ErrorBanner message={participantError} />
+        </div>
+      </section>
+
+      <Button onClick={() => router.push(`/admin/bookings/${bookingId}`)}>Voir la réservation</Button>
     </div>
   );
 }

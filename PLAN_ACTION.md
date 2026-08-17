@@ -325,6 +325,12 @@ Estimations données pour une petite équipe (1 à 2 développeurs full-stack + 
 
 ---
 
+## Frontend Lot 11 — Lien "Nouvelle réservation" et sélection de joueurs (admin)
+
+**Statut : fait et vérifié en direct dans un vrai navigateur.** Corrige deux lacunes trouvées en vérifiant l'accès à l'écran admin "Nouvelle réservation" (construit au Lot 6, jamais lié depuis l'interface) : (1) aucun lien nulle part n'y menait (ni menu, ni planning) — ajouté à `NAV_LINKS` et en bouton sur `/admin/planning` ; (2) l'écran ne permettait de choisir qu'un seul client, aucune façon d'ajouter d'autres joueurs. Nouvelles routes `POST/DELETE /admin/bookings/:id/participants[/:participantId]` (`BookingsAdminService.adminAddParticipant`/`adminRemoveParticipant`, réutilisant `BookingsRepository` directement comme `adminCancel`/`forceResync`, sans le contrôle "organisateur uniquement" des routes client équivalentes, toujours audité en contrepartie). Écran "Réservation créée" devient un vrai écran de gestion des joueurs (liste + ajout + retrait), même patron d'UI que `/checkout/[bookingId]` côté client. Vérifié en direct : lien de menu et bouton planning fonctionnels, réservation créée (Terrain Double, 48,00 €), joueur ajouté puis retiré, les deux actions tracées dans le journal d'audit. **Un bug trouvé et corrigé pendant la vérification** : le champ e-mail du formulaire d'ajout était étiqueté "optionnel" alors que le schéma de validation partagé avec la route client exige un identifiant — corrigé. ADR-0029 actée. 5 nouveaux tests backend (218 au total, 36 fichiers verts). Build et lint propres. Restant : pas de recherche de joueur existant (V2/Legacy) depuis cet écran, seul nom + e-mail d'invitation ; pas de message explicite si la capacité du terrain limite l'ajout (même limitation déjà documentée côté client, ADR-0026).
+
+---
+
 ## Après le Lot 10 — Migration par cohortes et cutover
 
 Suivre `docs/migration.md` : Phase 1 (interne) → Phase 2 (pilote) → Phase 3 (extension) → Phase 4 (généralisation) → Phase 5 (cutover) → Phase 6 (extinction), chacune gouvernée par les critères du CDC §51 et non par une simple impression de stabilité.
@@ -354,7 +360,7 @@ Le cutover final n'est déclenché qu'après passage complet de la **checklist A
 | Frontend 4 | Profil et moyens de paiement | fait |
 | Frontend 5 | Kiosque / QR handoff | fait |
 
-**Les 10 lots backend et les 10 lots frontend décrits ci-dessus sont tous committés et testés** (213 tests backend verts en CI, voir chaque section pour le détail de ce qui reste par lot). Les 25 écrans admin, les écrans client/kiosque secondaires, le changement d'e-mail et le rapport de chiffre d'affaires sont désormais construits. Ce qui bloque encore un vrai pilote : un compte Stripe réel pour Ardenne Padel (aucun parcours de paiement n'a été validé en conditions réelles, tout se dégrade proprement en 503, à l'exception des paiements 100 % wallet — réellement aboutis en direct), et les validations juridiques/comptables V-018 à V-024 (frais SPLIT, TVA crédits — hors code).
+**Les 10 lots backend et les 11 lots frontend décrits ci-dessus sont tous committés et testés** (218 tests backend verts en CI, voir chaque section pour le détail de ce qui reste par lot). Les 25 écrans admin, les écrans client/kiosque secondaires, le changement d'e-mail et le rapport de chiffre d'affaires sont désormais construits. Ce qui bloque encore un vrai pilote : un compte Stripe réel pour Ardenne Padel (aucun parcours de paiement n'a été validé en conditions réelles, tout se dégrade proprement en 503, à l'exception des paiements 100 % wallet — réellement aboutis en direct), et les validations juridiques/comptables V-018 à V-024 (frais SPLIT, TVA crédits — hors code).
 
 ## Ce qui ne doit pas être développé maintenant (rappel §4)
 

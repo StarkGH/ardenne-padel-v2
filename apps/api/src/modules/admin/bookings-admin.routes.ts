@@ -18,6 +18,16 @@ const createBookingSchema = z.object({
   durationMinutes: z.coerce.number().int().positive(),
   paymentMode: z.enum(["FULL", "SPLIT"]).optional(),
 });
+const addParticipantSchema = z
+  .object({
+    displayName: z.string().min(1).max(100),
+    userId: z.string().uuid().optional(),
+    legacyClientId: z.string().optional(),
+    invitedEmail: z.string().email().optional(),
+  })
+  .refine((v) => v.userId || v.legacyClientId || v.invitedEmail, {
+    message: "Un participant doit référencer un utilisateur V2, un client Legacy, ou une invitation e-mail.",
+  });
 
 function parseOrThrow<T>(schema: z.ZodType<T>, data: unknown): T {
   const parsed = schema.safeParse(data);
@@ -82,6 +92,25 @@ export function createBookingsAdminRouter(service: BookingsAdminService): Router
     try {
       const { reason } = parseOrThrow(resyncSchema, req.body ?? {});
       res.status(200).json({ data: await service.forceResync(req.params.id!, req.authUser!.id, reason) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post("/admin/bookings/:id/participants", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
+    try {
+      const input = parseOrThrow(addParticipantSchema, req.body);
+      const participant = await service.adminAddParticipant(req.params.id!, req.authUser!.id, input);
+      res.status(201).json({ data: participant });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete("/admin/bookings/:id/participants/:participantId", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
+    try {
+      await service.adminRemoveParticipant(req.params.id!, req.authUser!.id, req.params.participantId!);
+      res.status(204).send();
     } catch (err) {
       next(err);
     }

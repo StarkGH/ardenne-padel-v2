@@ -93,7 +93,24 @@ describe("BookingsAdminService", () => {
       new AuditLogService(new AuditLogRepository(prisma)),
       bookingsService,
       new IdentityRepository(prisma),
+      new CourtsRepository(prisma),
     );
+  }
+
+  async function createPendingBooking(): Promise<Booking> {
+    const start = new Date(Date.now() + 48 * 3600_000);
+    return prisma.booking.create({
+      data: {
+        organizer: { connect: { id: organizerUserId } },
+        court: { connect: { id: courtId } },
+        startAt: start,
+        endAt: new Date(start.getTime() + 3600_000),
+        durationMinutes: 60,
+        bookingBasePriceCents: 4800,
+        priceTotalCents: 4800,
+        status: "CHECKOUT_PENDING",
+      },
+    });
   }
 
   async function createConfirmedBooking(hourFromNow = 48): Promise<Booking> {
@@ -217,6 +234,57 @@ describe("BookingsAdminService", () => {
         { organizerUserId: "00000000-0000-0000-0000-000000000000", courtId, startAt, durationMinutes: 60 },
         actorUserId,
       ),
+    ).rejects.toMatchObject({ httpStatus: 404 });
+  });
+
+  it("adds a participant to a pending booking on behalf of the organizer, without requiring the actor to be the organizer, and audits it (CDC §55 écran 5)", async () => {
+    const booking = await createPendingBooking();
+    const service = buildService();
+
+    const participant = await service.adminAddParticipant(booking.id, actorUserId, { displayName: "Ami du client" });
+    expect(participant.displayName).toBe("Ami du client");
+    expect(participant.status).toBe("INVITED");
+
+    const auditRepo = new AuditLogRepository(prisma);
+    const entries = await auditRepo.listRecent({ targetType: "Booking", targetId: booking.id });
+    expect(entries.some((e) => e.action === "BOOKING_ADMIN_PARTICIPANT_ADDED")).toBe(true);
+  });
+
+  it("rejects adding a participant once the court capacity would be exceeded", async () => {
+    // Capacité 4 : l'organisateur occupe une place, donc 3 participants
+    // supplémentaires au maximum avant que le terrain soit complet.
+    const booking = await createPendingBooking();
+    const service = buildService();
+    await service.adminAddParticipant(booking.id, actorUserId, { displayName: "Joueur 1" });
+    await service.adminAddParticipant(booking.id, actorUserId, { displayName: "Joueur 2" });
+    await service.adminAddParticipant(booking.id, actorUserId, { displayName: "Joueur 3" });
+
+    await expect(service.adminAddParticipant(booking.id, actorUserId, { displayName: "Joueur 4" })).rejects.toMatchObject({ httpStatus: 422 });
+  });
+
+  it("rejects adding a participant once the booking is confirmed", async () => {
+    const booking = await createConfirmedBooking();
+    const service = buildService();
+    await expect(service.adminAddParticipant(booking.id, actorUserId, { displayName: "Trop tard" })).rejects.toMatchObject({ httpStatus: 409 });
+  });
+
+  it("removes a participant from a pending booking, auditing it", async () => {
+    const booking = await createPendingBooking();
+    const service = buildService();
+    const participant = await service.adminAddParticipant(booking.id, actorUserId, { displayName: "À retirer" });
+
+    await service.adminRemoveParticipant(booking.id, actorUserId, participant.id);
+
+    const auditRepo = new AuditLogRepository(prisma);
+    const entries = await auditRepo.listRecent({ targetType: "Booking", targetId: booking.id });
+    expect(entries.some((e) => e.action === "BOOKING_ADMIN_PARTICIPANT_REMOVED")).toBe(true);
+  });
+
+  it("rejects removing an unknown participant", async () => {
+    const booking = await createPendingBooking();
+    const service = buildService();
+    await expect(
+      service.adminRemoveParticipant(booking.id, actorUserId, "00000000-0000-0000-0000-000000000000"),
     ).rejects.toMatchObject({ httpStatus: 404 });
   });
 });
