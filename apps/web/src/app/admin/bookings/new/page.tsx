@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { DateTime } from "luxon";
 import { api, ApiError } from "@/lib/api";
 import { combineDateAndTimeToIso, DISPLAY_TIMEZONE, formatDayLabel } from "@/lib/datetime";
@@ -9,8 +9,15 @@ import { Button, Card, ErrorBanner, Field, PriceTag, Spinner, TextInput } from "
 import type { AdminBooking, AvailabilitySlot, ClientSearchResult, Court, CourtType, PricingQuote } from "@/lib/types";
 
 // CDC §55 écran 5 — Création réservation (téléphone/guichet) pour un client existant.
-export default function AdminNewBookingPage() {
+// Accessible aussi depuis un créneau vide du planning (?courtId=&date=&time=), qui
+// pré-remplit terrain/date/heure une fois le client choisi — voir ADR-0030.
+function AdminNewBookingForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const prefillCourtId = searchParams.get("courtId");
+  const prefillTime = searchParams.get("time");
+  const prefillApplied = useRef(false);
+
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ClientSearchResult[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -23,7 +30,7 @@ export default function AdminNewBookingPage() {
     const today = DateTime.now().setZone(DISPLAY_TIMEZONE).startOf("day");
     return Array.from({ length: 14 }, (_, i) => today.plus({ days: i }));
   }, []);
-  const [dateISO, setDateISO] = useState(() => DateTime.now().setZone(DISPLAY_TIMEZONE).toISODate()!);
+  const [dateISO, setDateISO] = useState(() => searchParams.get("date") ?? DateTime.now().setZone(DISPLAY_TIMEZONE).toISODate()!);
   const [availability, setAvailability] = useState<AvailabilitySlot[]>([]);
   const [loadingAvailability, setLoadingAvailability] = useState(false);
   const [startTime, setStartTime] = useState<string | null>(null);
@@ -37,6 +44,18 @@ export default function AdminNewBookingPage() {
     api.get<Court[]>("/courts").then(setCourts).catch(() => {});
   }, []);
 
+  // Applique le pré-remplissage venu du planning une fois le client choisi et
+  // les terrains chargés — une seule fois (pas à chaque changement manuel ensuite).
+  useEffect(() => {
+    if (!client || prefillApplied.current || !prefillCourtId || courts.length === 0) return;
+    const court = courts.find((c) => c.id === prefillCourtId);
+    if (court) {
+      setCourtType(court.courtType);
+      setCourtId(court.id);
+    }
+    prefillApplied.current = true;
+  }, [client, courts, prefillCourtId]);
+
   useEffect(() => {
     if (!courtId) return;
     setLoadingAvailability(true);
@@ -44,10 +63,15 @@ export default function AdminNewBookingPage() {
     setDurationMinutes(null);
     api
       .get<AvailabilitySlot[]>(`/availability?courtId=${courtId}&date=${dateISO}`)
-      .then(setAvailability)
+      .then((slots) => {
+        setAvailability(slots);
+        if (prefillTime && slots.some((s) => s.startTime === prefillTime)) {
+          setStartTime(prefillTime);
+        }
+      })
       .catch(() => setAvailability([]))
       .finally(() => setLoadingAvailability(false));
-  }, [courtId, dateISO]);
+  }, [courtId, dateISO, prefillTime]);
 
   useEffect(() => {
     if (!courtId || !startTime || !durationMinutes) {
@@ -272,6 +296,14 @@ export default function AdminNewBookingPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+export default function AdminNewBookingPage() {
+  return (
+    <Suspense fallback={<Spinner />}>
+      <AdminNewBookingForm />
+    </Suspense>
   );
 }
 

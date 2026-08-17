@@ -331,6 +331,12 @@ Estimations données pour une petite équipe (1 à 2 développeurs full-stack + 
 
 ---
 
+## Frontend Lot 12 — Planning en grille horaire
+
+**Statut : fait et vérifié en direct dans un vrai navigateur.** Remplace la liste de cartes empilées de `/admin/planning` par une grille horaire type "resource calendar" (terrains en colonnes, créneaux de 30 min en lignes, fenêtre 07h-23h étendue automatiquement si une réservation réelle déborde), inspirée du patron standard du secteur (Doinsport et consorts — page réelle inaccessible sans compte, patron confirmé via leur documentation d'aide publique). Grille CSS pure (`display: grid`, dimensions calculées en `style` inline), aucune bibliothèque de calendrier tierce introduite. Les cases occupées affichent un bloc coloré par statut (vert confirmé, orange en attente, rouge révision manuelle), cliquable vers le détail réservation ; les cases vides sont cliquables et redirigent vers `/admin/bookings/new?courtId=&date=&time=`, qui pré-remplit désormais type de terrain/terrain/date/créneau une fois le client choisi (nouveaux paramètres de recherche lus via `useSearchParams`, page enveloppée dans `Suspense` comme les autres écrans du même patron). Aucune vérification de disponibilité par cellule (coûteux pour un gain marginal) : le formulaire de création revérifie de toute façon avant de proposer le créneau. Réservations `CANCELED` exclues de la grille (le créneau est réellement libre). Vérifié en direct de bout en bout : grille affichée avec les 4 terrains, clic sur une case vide → formulaire pré-rempli (terrain/date/créneau tous corrects), réservation créée (24,00 €), bloc apparu dans la grille en occupant exactement les deux demi-heures de la réservation, clic sur le bloc → détail réservation. ADR-0030 actée. Aucun changement backend, 218 tests inchangés. Build et lint propres. Restant : fenêtre horaire fixe plutôt que les vraies heures d'ouverture par terrain (un terrain fermé affiche quand même des cases cliquables, qui échoueraient simplement à la création) ; pas de gestion visuelle de chevauchement si deux réservations occupent accidentellement le même créneau.
+
+---
+
 ## Après le Lot 10 — Migration par cohortes et cutover
 
 Suivre `docs/migration.md` : Phase 1 (interne) → Phase 2 (pilote) → Phase 3 (extension) → Phase 4 (généralisation) → Phase 5 (cutover) → Phase 6 (extinction), chacune gouvernée par les critères du CDC §51 et non par une simple impression de stabilité.
@@ -360,7 +366,7 @@ Le cutover final n'est déclenché qu'après passage complet de la **checklist A
 | Frontend 4 | Profil et moyens de paiement | fait |
 | Frontend 5 | Kiosque / QR handoff | fait |
 
-**Les 10 lots backend et les 11 lots frontend décrits ci-dessus sont tous committés et testés** (218 tests backend verts en CI, voir chaque section pour le détail de ce qui reste par lot). Les 25 écrans admin, les écrans client/kiosque secondaires, le changement d'e-mail et le rapport de chiffre d'affaires sont désormais construits. Ce qui bloque encore un vrai pilote : un compte Stripe réel pour Ardenne Padel (aucun parcours de paiement n'a été validé en conditions réelles, tout se dégrade proprement en 503, à l'exception des paiements 100 % wallet — réellement aboutis en direct), et les validations juridiques/comptables V-018 à V-024 (frais SPLIT, TVA crédits — hors code).
+**Les 10 lots backend et les 12 lots frontend décrits ci-dessus sont tous committés et testés** (218 tests backend verts en CI, voir chaque section pour le détail de ce qui reste par lot). Les 25 écrans admin, les écrans client/kiosque secondaires, le changement d'e-mail et le rapport de chiffre d'affaires sont désormais construits. Ce qui bloque encore un vrai pilote : un compte Stripe réel pour Ardenne Padel (aucun parcours de paiement n'a été validé en conditions réelles, tout se dégrade proprement en 503, à l'exception des paiements 100 % wallet — réellement aboutis en direct), et les validations juridiques/comptables V-018 à V-024 (frais SPLIT, TVA crédits — hors code).
 
 ## Ce qui ne doit pas être développé maintenant (rappel §4)
 
