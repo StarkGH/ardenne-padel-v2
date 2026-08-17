@@ -33,6 +33,7 @@ class CapturingEmailSender implements EmailSender {
   async sendSplitInvitationEmail(_to: string, url: string): Promise<void> {
     this.shareUrls.push(url);
   }
+  async sendMigrationInvitation(): Promise<void> {}
   async sendTemplatedEmail(): Promise<void> {}
 }
 

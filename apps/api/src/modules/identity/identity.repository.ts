@@ -1,4 +1,4 @@
-import type { PrismaClient, Role } from "@prisma/client";
+import type { PrismaClient, Role, UserStatus } from "@prisma/client";
 
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -22,6 +22,8 @@ export class IdentityRepository {
     lastName: string;
     phone?: string | null;
     role?: Role;
+    /** `ACTIVE` uniquement pour la migration Doinsport (CDC §7.3.5 : la possession du lien d'invitation vaut vérification d'e-mail). Sinon `PENDING_VERIFICATION` par défaut. */
+    status?: UserStatus;
   }) {
     return this.db.user.create({
       data: {
@@ -31,7 +33,7 @@ export class IdentityRepository {
         lastName: input.lastName,
         phone: input.phone ?? null,
         role: input.role ?? "CUSTOMER",
-        status: "PENDING_VERIFICATION",
+        status: input.status ?? "PENDING_VERIFICATION",
       },
     });
   }

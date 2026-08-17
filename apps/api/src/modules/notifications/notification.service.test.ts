@@ -11,6 +11,7 @@ class CapturingEmailSender implements EmailSender {
   async sendPasswordResetEmail(): Promise<void> {}
   async sendEmailChangeConfirmation(): Promise<void> {}
   async sendSplitInvitationEmail(): Promise<void> {}
+  async sendMigrationInvitation(): Promise<void> {}
   async sendTemplatedEmail(to: string, template: string, payload: Record<string, unknown>): Promise<void> {
     this.sent.push({ to, template, payload });
   }

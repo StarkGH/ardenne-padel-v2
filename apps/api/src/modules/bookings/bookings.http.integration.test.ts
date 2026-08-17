@@ -121,6 +121,7 @@ describe("Bookings — parcours HTTP complet (sans Legacy)", () => {
         sendPasswordResetEmail: async () => {},
         sendEmailChangeConfirmation: async () => {},
         sendSplitInvitationEmail: async () => {},
+        sendMigrationInvitation: async () => {},
         sendTemplatedEmail: async () => {},
       },
     });

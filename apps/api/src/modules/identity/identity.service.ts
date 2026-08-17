@@ -2,7 +2,7 @@ import { AppError, ErrorCodes, logger } from "@ardenne/shared";
 import type { AppConfig } from "@ardenne/config";
 import { normalizeEmail, type IdentityRepository } from "./identity.repository.js";
 import type { EmailSender } from "./email-sender.js";
-import { hashPassword, verifyPassword } from "./password.js";
+import { assertPasswordStrength, hashPassword, verifyPassword } from "./password.js";
 import { generateOpaqueToken, hashToken } from "./tokens.js";
 
 export interface RegisterInput {
@@ -26,8 +26,6 @@ export interface LoginInput {
   userAgent?: string;
 }
 
-const MIN_PASSWORD_LENGTH = 10;
-
 export class IdentityService {
   constructor(
     private readonly repo: IdentityRepository,
@@ -35,18 +33,8 @@ export class IdentityService {
     private readonly emailSender: EmailSender,
   ) {}
 
-  private assertPasswordStrength(password: string): void {
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      throw new AppError(
-        ErrorCodes.VALIDATION_FAILED,
-        `Le mot de passe doit contenir au moins ${MIN_PASSWORD_LENGTH} caractères.`,
-        422,
-      );
-    }
-  }
-
   async register(input: RegisterInput) {
-    this.assertPasswordStrength(input.password);
+    assertPasswordStrength(input.password);
 
     const existing = await this.repo.findUserByEmail(input.email);
     if (existing) {
@@ -180,7 +168,7 @@ export class IdentityService {
   }
 
   async resetPassword(rawToken: string, newPassword: string) {
-    this.assertPasswordStrength(newPassword);
+    assertPasswordStrength(newPassword);
 
     const tokenHash = hashToken(rawToken);
     const token = await this.repo.findValidPasswordResetToken(tokenHash);
@@ -242,7 +230,7 @@ export class IdentityService {
     const ok = await verifyPassword(currentPassword, user.passwordHash);
     if (!ok) throw new AppError(ErrorCodes.INVALID_CREDENTIALS, "Mot de passe actuel incorrect.", 401);
 
-    this.assertPasswordStrength(newPassword);
+    assertPasswordStrength(newPassword);
     const passwordHash = await hashPassword(newPassword);
     await this.repo.updatePasswordHash(userId, passwordHash);
 

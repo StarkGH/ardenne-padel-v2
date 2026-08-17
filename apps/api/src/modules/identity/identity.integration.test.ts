@@ -30,6 +30,7 @@ class CapturingEmailSender implements EmailSender {
   }
 
   async sendSplitInvitationEmail(): Promise<void> {}
+  async sendMigrationInvitation(): Promise<void> {}
   async sendTemplatedEmail(): Promise<void> {}
 }
 

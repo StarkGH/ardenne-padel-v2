@@ -35,6 +35,11 @@ const envSchema = z.object({
   LEGACY_ACCESS_IMPORT_ENABLED: boolFromString.default("false"),
   LEGACY_SYNC_INTERVAL_SECONDS: z.coerce.number().int().positive().default(60),
   LEGACY_RECONCILIATION_INTERVAL_SECONDS: z.coerce.number().int().positive().default(300),
+  // CDC §7.3 : "lien unique à durée limitée" pour l'invitation de migration
+  // Doinsport → V2. Plus long que EMAIL_VERIFICATION_TOKEN_TTL_HOURS (48h) :
+  // un client Legacy n'a pas la même urgence à consulter sa boîte mail
+  // qu'un inscrit qui vient de démarrer son propre parcours.
+  CLIENT_MIGRATION_INVITATION_TTL_HOURS: z.coerce.number().int().positive().default(168),
 
   DOINSPORT_BASE_URL: z.string().default("https://api-principale.doinsport.club"),
   DOINSPORT_CLUB_LOGIN: z.string().optional(),

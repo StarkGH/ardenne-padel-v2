@@ -133,6 +133,19 @@ function LegacyClientCard({ entry, onChanged }: { entry: LegacyClientMigrationEn
     }
   }
 
+  async function handleInvite() {
+    setActing(true);
+    setError(null);
+    try {
+      await api.post(`/admin/legacy-clients/${entry.id}/invite`, {});
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Impossible d'envoyer l'invitation.");
+    } finally {
+      setActing(false);
+    }
+  }
+
   return (
     <Card className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
@@ -168,6 +181,11 @@ function LegacyClientCard({ entry, onChanged }: { entry: LegacyClientMigrationEn
               <Button variant="secondary" className="w-auto shrink-0" onClick={() => setPicking(true)} disabled={acting}>
                 Lier à un compte V2
               </Button>
+              {entry.migrationStatus === "LEGACY_ONLY" && (
+                <Button className="w-auto shrink-0" onClick={handleInvite} disabled={acting || !entry.email} title={!entry.email ? "Aucune adresse e-mail connue" : undefined}>
+                  {acting ? "..." : "Inviter à migrer"}
+                </Button>
+              )}
               <Button variant="danger" className="w-auto shrink-0" onClick={() => setDisabling(true)} disabled={acting}>
                 Rejeter
               </Button>
@@ -224,6 +242,12 @@ function LegacyClientCard({ entry, onChanged }: { entry: LegacyClientMigrationEn
             </div>
           )}
         </div>
+      )}
+
+      {entry.migrationStatus === "INVITED" && (
+        <Button variant="secondary" className="w-auto shrink-0" onClick={handleInvite} disabled={acting}>
+          {acting ? "..." : "Renvoyer l'invitation"}
+        </Button>
       )}
 
       {entry.migrationStatus === "DISABLED" && (

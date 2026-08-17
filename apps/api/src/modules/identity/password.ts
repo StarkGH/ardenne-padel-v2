@@ -1,4 +1,5 @@
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual, type ScryptOptions } from "node:crypto";
+import { AppError, ErrorCodes } from "@ardenne/shared";
 
 /**
  * Hachage de mot de passe avec scrypt (CDC §7.2 : "algorithme moderne de
@@ -21,6 +22,15 @@ function scryptAsync(password: string, salt: Buffer, keylen: number, options: Sc
 
 const KEY_LENGTH = 64;
 const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1 } as const;
+
+/** CDC §7.2 — règle unique de robustesse, partagée par tout endroit qui fait choisir un mot de passe (inscription, reset, migration Doinsport). */
+const MIN_PASSWORD_LENGTH = 10;
+
+export function assertPasswordStrength(password: string): void {
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    throw new AppError(ErrorCodes.VALIDATION_FAILED, `Le mot de passe doit contenir au moins ${MIN_PASSWORD_LENGTH} caractères.`, 422);
+  }
+}
 
 export async function hashPassword(plainPassword: string): Promise<string> {
   const salt = randomBytes(16);

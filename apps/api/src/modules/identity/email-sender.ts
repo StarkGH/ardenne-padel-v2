@@ -12,6 +12,8 @@ export interface EmailSender {
   sendEmailChangeConfirmation(to: string, confirmUrl: string): Promise<void>;
   /** CDC §26, §38 — invitation à payer une part de réservation partagée. */
   sendSplitInvitationEmail(to: string, shareUrl: string): Promise<void>;
+  /** CDC §7.3 — invitation à migrer un compte Doinsport ("Shadow Client") vers un compte V2. */
+  sendMigrationInvitation(to: string, inviteUrl: string): Promise<void>;
   /**
    * CDC §37.1, §98 — canal générique pour les templates dispatchés depuis
    * `notification_outbox` (Lot 8). `template`/`payload` typés en `unknown`
@@ -46,5 +48,10 @@ export class DevConsoleEmailSender implements EmailSender {
   async sendTemplatedEmail(to: string, template: string, payload: Record<string, unknown>): Promise<void> {
     // eslint-disable-next-line no-console
     console.log(`[dev-email] ${template} pour ${to} :`, payload);
+  }
+
+  async sendMigrationInvitation(to: string, inviteUrl: string): Promise<void> {
+    // eslint-disable-next-line no-console
+    console.log(`[dev-email] Invitation à migrer votre compte pour ${to} : ${inviteUrl}`);
   }
 }

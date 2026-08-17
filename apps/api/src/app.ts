@@ -96,6 +96,8 @@ import { ReportsService } from "./modules/admin/reports.service.js";
 import { createReportsRouter } from "./modules/admin/reports.routes.js";
 import { LegacyMigrationAdminService } from "./modules/admin/legacy-migration-admin.service.js";
 import { createLegacyMigrationAdminRouter } from "./modules/admin/legacy-migration-admin.routes.js";
+import { MigrationInvitationService } from "./modules/legacy-doinsport/migration-invitation.service.js";
+import { createMigrationInvitationRouter } from "./modules/legacy-doinsport/migration-invitation.routes.js";
 
 export interface AppDependencies {
   prisma: PrismaClient;
@@ -301,6 +303,7 @@ export function createApp({
   const alertsService = new AlertsService(prisma, config, healthIndicatorsService);
   const reportsService = new ReportsService(prisma, config);
   const legacyMigrationAdminService = new LegacyMigrationAdminService(prisma, auditLogService);
+  const migrationInvitationService = new MigrationInvitationService(prisma, identityRepository, config, emailer, auditLogService);
 
   app.use("/api/v1", createCrmRouter(crmService));
   app.use("/api/v1", createSchedulingAdminRouter(schedulingAdminService));
@@ -314,6 +317,7 @@ export function createApp({
   app.use("/api/v1", createSettingsRouter(config));
   app.use("/api/v1", createReportsRouter(reportsService));
   app.use("/api/v1", createLegacyMigrationAdminRouter(legacyMigrationAdminService));
+  app.use("/api/v1", createMigrationInvitationRouter(migrationInvitationService));
 
   app.use(notFoundHandler);
   app.use(errorHandler);
