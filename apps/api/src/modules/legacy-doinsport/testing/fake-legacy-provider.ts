@@ -27,6 +27,7 @@ export class FakeLegacyProvider implements LegacyBookingProvider {
     comment: null,
     playgroundIds: [],
     accessCodes: [],
+    bookingOwnerClientId: null,
     raw: null,
   };
   lastCreateBookingInput: LegacyCreateBooking | null = null;
@@ -42,7 +43,7 @@ export class FakeLegacyProvider implements LegacyBookingProvider {
     return [];
   }
   async getBooking(id: string): Promise<LegacyBookingDto> {
-    return { id, startAt: "", endAt: "", canceled: false, comment: null, playgroundIds: [], accessCodes: [], raw: null };
+    return { id, startAt: "", endAt: "", canceled: false, comment: null, playgroundIds: [], accessCodes: [], bookingOwnerClientId: null, raw: null };
   }
   async listCourts(): Promise<LegacyCourtDto[]> {
     return [];
@@ -66,6 +67,6 @@ export class FakeLegacyProvider implements LegacyBookingProvider {
     return { ...this.createBookingResult, startAt: input.startAt, endAt: input.endAt, comment: input.correlationMarker };
   }
   async cancelBooking(id: string, _options: LegacyCancelOptions): Promise<LegacyBookingDto> {
-    return { id, startAt: "", endAt: "", canceled: true, comment: null, playgroundIds: [], accessCodes: [], raw: null };
+    return { id, startAt: "", endAt: "", canceled: true, comment: null, playgroundIds: [], accessCodes: [], bookingOwnerClientId: null, raw: null };
   }
 }

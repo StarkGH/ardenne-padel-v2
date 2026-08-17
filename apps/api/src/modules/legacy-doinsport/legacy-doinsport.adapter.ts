@@ -81,10 +81,15 @@ export class LegacyDoinsportAdapter implements LegacyBookingProvider {
     return this.withLegacyErrorMapping(async () => {
       const perPage = 200;
       let page = 1;
-      let total: number | null = null;
       const all: Record<string, unknown>[] = [];
 
-      // Garde-fou anti-boucle infinie si l'API renvoie un total incohérent (CDC §86).
+      // Pagination par taille de page, pas par `totalItems` : `/clubs/clients`
+      // renvoie parfois un tableau brut sans total (confirmé en direct,
+      // ADR-0031) — se fier à `totalItems`/`hydra:totalItems` a fait
+      // s'arrêter l'import après la première page dans ce cas, perdant
+      // silencieusement tous les clients au-delà de `perPage`. Une page plus
+      // courte que `perPage` signale la fin, indépendamment de tout champ de
+      // total. Garde-fou anti-boucle infinie conservé (CDC §86).
       for (let guard = 0; guard < 200; guard++) {
         const res = await this.http.call(`/clubs/clients`, {
           "club.id": this.http.clubId,
@@ -93,12 +98,8 @@ export class LegacyDoinsportAdapter implements LegacyBookingProvider {
           getTotalItems: "true",
         });
         const batch = extractCollection(res);
-        if (total === null) {
-          const r = res as Record<string, unknown>;
-          total = Number(r.totalItems ?? r["hydra:totalItems"] ?? batch.length);
-        }
         all.push(...batch);
-        if (!batch.length || all.length >= total) break;
+        if (batch.length < perPage) break;
         page += 1;
       }
 
@@ -129,9 +130,11 @@ export class LegacyDoinsportAdapter implements LegacyBookingProvider {
     return this.withLegacyErrorMapping(async () => {
       const perPage = 200;
       let page = 1;
-      let total: number | null = null;
       const all: Record<string, unknown>[] = [];
 
+      // Pagination par taille de page — voir le commentaire équivalent dans
+      // `listClients()` : ne pas se fier à un `totalItems` absent ou peu
+      // fiable.
       for (let guard = 0; guard < 200; guard++) {
         const res = await this.http.call(`/clubs/bookings/listing`, {
           "club.id": this.http.clubId,
@@ -145,12 +148,8 @@ export class LegacyDoinsportAdapter implements LegacyBookingProvider {
           "startAt[before]": range.toISO,
         });
         const batch = extractCollection(res);
-        if (total === null) {
-          const r = res as Record<string, unknown>;
-          total = Number(r.totalItems ?? r["hydra:totalItems"] ?? batch.length);
-        }
         all.push(...batch);
-        if (!batch.length || all.length >= total) break;
+        if (batch.length < perPage) break;
         page += 1;
       }
 
@@ -181,6 +180,9 @@ export class LegacyDoinsportAdapter implements LegacyBookingProvider {
 
   private normalizeBooking(raw: Record<string, unknown>): LegacyBookingDto {
     const playgrounds = Array.isArray(raw.playgrounds) ? (raw.playgrounds as Record<string, unknown>[]) : [];
+    const participants = Array.isArray(raw.participants) ? (raw.participants as Record<string, unknown>[]) : [];
+    const owner = participants.find((p) => p.bookingOwner === true);
+    const ownerClient = owner?.client as Record<string, unknown> | null | undefined;
     return {
       id: str(raw.id),
       startAt: str(raw.startAt),
@@ -189,6 +191,7 @@ export class LegacyDoinsportAdapter implements LegacyBookingProvider {
       comment: typeof raw.comment === "string" ? raw.comment : null,
       playgroundIds: playgrounds.map((p) => str(p.id)),
       accessCodes: Array.isArray(raw.accessCodes) ? (raw.accessCodes as LegacyBookingDto["accessCodes"]) : [],
+      bookingOwnerClientId: ownerClient?.id ? str(ownerClient.id) : null,
       raw,
     };
   }

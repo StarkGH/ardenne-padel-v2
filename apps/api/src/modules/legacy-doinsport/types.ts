@@ -32,6 +32,14 @@ export interface LegacyBookingDto {
   comment: string | null;
   playgroundIds: string[];
   accessCodes: Array<{ playgroundName?: string; code?: string; accessCodeEnabledBefore?: string }>;
+  /**
+   * `legacy_clients.externalId` du participant `bookingOwner: true` (import
+   * historique, ADR-0031) — distinct de `participants[].user`, qui référence
+   * le membre du staff ayant créé la réservation, pas le client. `null` si
+   * la réservation n'a aucun participant marqué `bookingOwner` (rare, ex.
+   * créneau bloqué par le club sans client).
+   */
+  bookingOwnerClientId: string | null;
   raw: unknown;
 }
 

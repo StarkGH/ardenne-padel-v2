@@ -13,7 +13,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "import:legacy": "tsx src/scripts/import-legacy.ts"
   },
   "dependencies": {
     "@ardenne/config": "0.1.0",
