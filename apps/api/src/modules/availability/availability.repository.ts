@@ -47,21 +47,37 @@ export class AvailabilityRepository {
   }
 
   /**
-   * Occupations issues des réservations déjà connues de V2 — y compris,
-   * dès qu'il existera (Lot 8), les réservations Legacy synchronisées
-   * localement. L'affichage de disponibilité reste par nature indicatif
-   * (CDC §10.3) : l'arbitre final anti-collision est le POST Doinsport au
-   * moment de la confirmation, pas ce calcul.
+   * Occupations issues des réservations déjà connues de V2, fusionnées avec
+   * les réservations Doinsport importées localement (`LegacyBooking`, Lot
+   * 11, ADR-0033) — CDC §10.3 : *"les réservations Doinsport sont
+   * intégrées comme occupations externes"*, non branché avant ce lot.
+   * L'affichage de disponibilité reste par nature indicatif : l'arbitre
+   * final anti-collision est le POST Doinsport au moment de la confirmation,
+   * pas ce calcul — `LegacyBooking` n'est peuplé qu'au rythme du dernier
+   * import manuel (pas encore de scheduler), jamais garanti à jour à la
+   * seconde près.
    */
-  findOccupyingBookings(courtId: string, rangeStart: Date, rangeEnd: Date) {
-    return this.db.booking.findMany({
-      where: {
-        courtId,
-        status: { in: [...ACTIVE_BOOKING_STATUSES] },
-        startAt: { lt: rangeEnd },
-        endAt: { gt: rangeStart },
-      },
-      select: { startAt: true, endAt: true },
-    });
+  async findOccupyingBookings(courtId: string, rangeStart: Date, rangeEnd: Date) {
+    const [v2Bookings, legacyBookings] = await Promise.all([
+      this.db.booking.findMany({
+        where: {
+          courtId,
+          status: { in: [...ACTIVE_BOOKING_STATUSES] },
+          startAt: { lt: rangeEnd },
+          endAt: { gt: rangeStart },
+        },
+        select: { startAt: true, endAt: true },
+      }),
+      this.db.legacyBooking.findMany({
+        where: {
+          courtId,
+          canceled: false,
+          startAt: { lt: rangeEnd },
+          endAt: { gt: rangeStart },
+        },
+        select: { startAt: true, endAt: true },
+      }),
+    ]);
+    return [...v2Bookings, ...legacyBookings];
   }
 }
