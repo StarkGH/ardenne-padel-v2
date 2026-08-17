@@ -34,7 +34,7 @@ Le paiement d'une invitation à une réservation SPLIT est un vecteur naturel de
 
 ## Staging
 
-Artefacts posés (ADR-0037, `docs/deployment.md`) : Dockerfiles API/web, `docker-compose.staging.yml`, reverse proxy Caddy (TLS automatique). Reste à provisionner : un serveur réel et un domaine (décision opérationnelle du club).
+Artefacts posés (ADR-0038, `docs/deployment.md`) : Dockerfiles API/web, `docker-compose.staging.yml`, reverse proxy Caddy (TLS automatique). Reste à provisionner : un serveur réel et un domaine (décision opérationnelle du club).
 
 ## Suivi Annexe B
 

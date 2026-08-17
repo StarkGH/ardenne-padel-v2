@@ -1,6 +1,6 @@
 # Suivi Annexe B — Checklist pré-pilote
 
-Traçabilité CDC Annexe B (44 items) — mise à jour au fil des lots plutôt qu'en fin de projet, pour que "on est prêt pour le pilote" repose sur une preuve item par item et non sur une impression. Complète `docs/migration.md` (Phase 0 → Phase 1) : la sortie de Phase 0 exige "suite de tests verte, staging fonctionnel" — la suite de tests l'est (259 tests, 42 fichiers) ; **les artefacts de staging (Dockerfiles, orchestration, reverse proxy TLS, runbook) sont désormais posés (ADR-0037, `docs/deployment.md`) mais aucun serveur réel n'est encore provisionné** — voir "Ce qui bloque réellement" en bas de page.
+Traçabilité CDC Annexe B (44 items) — mise à jour au fil des lots plutôt qu'en fin de projet, pour que "on est prêt pour le pilote" repose sur une preuve item par item et non sur une impression. Complète `docs/migration.md` (Phase 0 → Phase 1) : la sortie de Phase 0 exige "suite de tests verte, staging fonctionnel" — la suite de tests l'est (259 tests, 42 fichiers) ; **les artefacts de staging (Dockerfiles, orchestration, reverse proxy TLS, runbook) sont désormais posés (ADR-0038, `docs/deployment.md`) mais aucun serveur réel n'est encore provisionné** — voir "Ce qui bloque réellement" en bas de page.
 
 Légende : ✅ codé et vérifié en conditions réelles · 🟡 codé, testé, non vérifié avec de vraies données/clés externes · ⚠️ partiel/dette connue · ❌ non fait/hors de portée sans prérequis externe.
 
@@ -36,20 +36,20 @@ Légende : ✅ codé et vérifié en conditions réelles · 🟡 codé, testé, 
 
 | Item | Statut | Preuve |
 |---|---|---|
-| Stripe test complet | ❌ | Bloqué — aucun compte Stripe réel pour Ardenne Padel (V-011 à V-017) |
-| Webhooks idempotents | 🟡 | `webhook.routes.ts` + tests de résilience — jamais exercé avec de vrais webhooks Stripe |
-| Paiement partagé (SPLIT) | 🟡 | Flux complet testé et vérifié en direct jusqu'à la limite imposée par l'absence de Stripe (ADR-0020) |
-| Régularisation (garantie organisateur) | 🟡 | `booking-guarantee.service.ts` codé et testé — vérifié en direct côté wallet uniquement, côté carte bloqué par Stripe |
+| Stripe test complet | 🟡 | **Compte Stripe test réel connecté (ADR-0037-stripe, 2026-08-17)** — carte uniquement vérifiée en direct ; Bancontact/iDEAL/Apple Pay/Terminal restent non câblés (V-012/V-014), mode live non fait (V-011 à V-017) |
+| Webhooks idempotents | 🟡 | `webhook.routes.ts` + tests de résilience — jamais exercé avec de vrais webhooks Stripe (le compte test connecté depuis le 2026-08-17 permettrait de le faire) |
+| Paiement partagé (SPLIT) | 🟡 | Flux complet testé ; `/pay/[token]` câblé avec Stripe Elements réel (ADR-0037-stripe) mais **non re-vérifié en direct** après le correctif `automatic_payment_methods` du même lot |
+| Régularisation (garantie organisateur) | 🟡 | `booking-guarantee.service.ts` codé et testé, vérifié en direct côté wallet — côté carte (`chargeSavedMethod`), le correctif Stripe est appliqué mais **pas déclenché en direct** (ADR-0037-stripe, "Négatif") |
 | Wallet ledger | ✅ | Testé extensivement, **paiement 100 % wallet réellement abouti en direct** (Frontend Lot 3) |
-| Packs de crédits | 🟡 | Testé, dégradation `STRIPE_NOT_CONFIGURED` propre — achat réel non vérifiable sans Stripe |
+| Packs de crédits | ✅ | **Achat réel vérifié en direct contre Stripe test** (100,00 €, wallet crédité — ADR-0037-stripe, 2026-08-17) |
 | Bonus crédits | ✅ | Testé (composition payé/bonus/offert affichée et vérifiée en direct) |
 | Wallet holds | ✅ | Testé (création/capture/libération), vérifié en direct (Frontend Lot 7) |
-| Paiement FULL online | 🟡 | Dégradation propre sans Stripe, jamais exercé avec une vraie carte |
+| Paiement FULL online | ✅ | **Réservation payée en carte réellement vérifiée en direct** (24,00 €, `/checkout` — ADR-0037-stripe, 2026-08-17) |
 | Paiement FULL Terminal | ❌ | `StripeTerminalProvider` posé et testé unitairement mais **non câblé** dans un flux de réservation réel (V-014) |
 | QR handoff | ✅ | Vérifié en direct de bout en bout, deux onglets simulant tablette + téléphone (Frontend Lot 5) |
-| Paiement mixte wallet + externe | 🟡 | Codé et vérifié pour la part wallet ; la part externe reste bloquée par Stripe |
+| Paiement mixte wallet + externe | 🟡 | Codé et vérifié pour la part wallet ; la part externe utilise désormais Stripe Elements réel mais reste non re-vérifiée en direct sur ce chemin précis |
 | SPLIT service fee | ✅ | Testé (ADR-0013) |
-| Garantie carte off-session | ❌ | Bloqué par Stripe — nécessite une vraie carte enregistrée |
+| Garantie carte off-session | 🟡 | Carte enregistrée avec succès en direct (`SetupIntent` confirmé, ADR-0037-stripe) — le déclenchement réel d'une charge off-session (`chargeSavedMethod`) reste non vérifié en direct |
 | Garantie wallet | ✅ | Testé et vérifié en direct |
 | Frais provider réels reportés | 🟡 | Modélisé (`stripe-payment-provider.ts`), jamais alimenté par de vrais frais Stripe |
 | Validation comptable/TVA crédits | ⚠️ | V-018 partiellement clos — réservations + wallet à 6 % confirmés par le comptable (BDO, `docs/tva.md`), licence AFP et taux boissons encore en attente côté comptable |
@@ -80,13 +80,14 @@ Légende : ✅ codé et vérifié en conditions réelles · 🟡 codé, testé, 
 
 ## Synthèse
 
-**24 ✅ pleinement vérifiés · 9 🟡 codés et testés, non vérifiés en conditions externes réelles · 6 ⚠️ dette opérationnelle connue et documentée · 5 ❌ bloqués ou non faits** (sur 44).
+**26 ✅ pleinement vérifiés · 9 🟡 codés et testés, non vérifiés en conditions externes réelles · 6 ⚠️ dette opérationnelle connue et documentée · 3 ❌ bloqués ou non faits** (sur 44) — mise à jour 2026-08-17 : un compte Stripe **test** réel a été connecté et vérifié en direct (carte uniquement — ADR-0037-stripe), faisant significativement progresser les items liés aux paiements. Mode live, Bancontact/iDEAL/Apple Pay et Terminal restent hors périmètre de cette avancée.
 
 ## Ce qui bloque réellement la Phase 1 (interne)
 
-Contrairement à l'impression que pourrait donner le total ci-dessus, la Phase 1 ("comptes staff, réservations test, parcours complet") ne nécessite **pas** que les 44 items soient verts — elle nécessite un environnement où les exercer. Deux prérequis concrets, ni l'un ni l'autre du code applicatif :
+Contrairement à l'impression que pourrait donner le total ci-dessus, la Phase 1 ("comptes staff, réservations test, parcours complet") ne nécessite **pas** que les 44 items soient verts. Au 2026-08-17, un seul vrai prérequis structurel reste ouvert :
 
-1. **Un serveur réel pour l'environnement de staging.** Les artefacts existent désormais (ADR-0037) : `apps/api/Dockerfile`, `apps/web/Dockerfile`, `docker-compose.staging.yml`, reverse proxy Caddy avec TLS automatique, runbook complet (`docs/deployment.md`). **Un bug bloquant de production a été trouvé et corrigé au passage** : le build compilé (`npm run build && node dist/server.js`) ne démarrait pas du tout avant ce lot (résolution de module cassée pour les packages partagés) — jamais détecté car aucun lot précédent n'avait exécuté ce chemin de bout en bout. Ce qui manque encore : un serveur (VPS ou équivalent) réellement provisionné et un domaine pointant dessus — décision opérationnelle (fournisseur, coût) hors du périmètre du code — et une vérification des Dockerfiles par un vrai `docker build` (non exécutable dans l'environnement de développement utilisé pour ce lot, accès `sudo` indisponible pour démarrer le démon Docker).
-2. **Un compte Stripe réel** (test puis live) — bloque à lui seul 7 des 9 items 🟡 ci-dessus (webhooks, paiement partagé, régularisation carte, packs de crédits, paiement FULL online, part externe du paiement mixte, frais provider), plus 3 des ❌ (Stripe test complet, Terminal, garantie carte) — tous déjà codés et testés unitairement mais jamais exercés avec de vraies clés.
+1. **Un serveur réel pour l'environnement de staging.** Les artefacts existent désormais (ADR-0038) : `apps/api/Dockerfile`, `apps/web/Dockerfile`, `docker-compose.staging.yml`, reverse proxy Caddy avec TLS automatique, runbook complet (`docs/deployment.md`). **Un bug bloquant de production a été trouvé et corrigé au passage** : le build compilé (`npm run build && node dist/server.js`) ne démarrait pas du tout avant ce lot (résolution de module cassée pour les packages partagés) — jamais détecté car aucun lot précédent n'avait exécuté ce chemin de bout en bout. Ce qui manque encore : un serveur (VPS ou équivalent) réellement provisionné et un domaine pointant dessus — décision opérationnelle (fournisseur, coût) hors du périmètre du code — et une vérification des Dockerfiles par un vrai `docker build` (non exécutable dans l'environnement de développement utilisé pour ce lot, accès `sudo` indisponible pour démarrer le démon Docker).
 
-Les deux 🟡 restants (Access Legacy, Restore à volume production) et les gaps ⚠️ (terrains/tarifs réels, sauvegardes automatiques, monitoring externe, audit de sécurité externe, wording juridique SPLIT) sont réels mais n'empêchent pas de démarrer une Phase 1 restreinte à l'équipe — ils redeviennent bloquants à mesure qu'on avance vers la Phase 2 (pilote) puis le cutover (Annexe C).
+Le second prérequis (compte Stripe) a été partiellement levé le même jour (ADR-0037-stripe) : un compte **test** réel est connecté, carte uniquement vérifiée en direct (checkout, packs de crédits, carte enregistrée). Reste ouvert avant un vrai pilote : passage en mode **live**, câblage Bancontact/iDEAL/Apple Pay/Terminal (V-012/V-014), et re-vérification en direct des chemins non encore redéclenchés après le dernier correctif (`/pay/[token]`, `chargeSavedMethod`).
+
+Les gaps ⚠️ restants (terrains/tarifs réels, sauvegardes automatiques, monitoring externe, audit de sécurité externe, wording juridique SPLIT) sont réels mais n'empêchent pas de démarrer une Phase 1 restreinte à l'équipe — ils redeviennent bloquants à mesure qu'on avance vers la Phase 2 (pilote) puis le cutover (Annexe C).

@@ -1,7 +1,7 @@
 # Déploiement — environnement de staging
 
 CDC §61, §63. Complète `docs/operations.md` (secrets) et `docs/migration.md`
-(Phase 0 exige "staging fonctionnel" avant toute Phase 1). Voir ADR-0037
+(Phase 0 exige "staging fonctionnel" avant toute Phase 1). Voir ADR-0038
 pour les décisions et leur justification.
 
 ## Prérequis
@@ -32,7 +32,7 @@ docker compose -f docker-compose.staging.yml --env-file .env.staging build
 docker compose -f docker-compose.staging.yml --env-file .env.staging up -d
 ```
 
-### 4. Migrations (jamais automatique au démarrage du conteneur, voir ADR-0037)
+### 4. Migrations (jamais automatique au démarrage du conteneur, voir ADR-0038)
 
 ```bash
 docker compose -f docker-compose.staging.yml --env-file .env.staging run --rm api npm run prisma:migrate:deploy --workspace apps/api
