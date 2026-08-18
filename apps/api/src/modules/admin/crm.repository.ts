@@ -12,9 +12,14 @@ export class CrmRepository {
   searchUsers(query: string, limit = 25) {
     return this.db.user.findMany({
       where: {
-        OR: [{ email: { contains: query, mode: "insensitive" } }, { firstName: { contains: query, mode: "insensitive" } }, { lastName: { contains: query, mode: "insensitive" } }],
+        OR: [
+          { email: { contains: query, mode: "insensitive" } },
+          { firstName: { contains: query, mode: "insensitive" } },
+          { lastName: { contains: query, mode: "insensitive" } },
+          { phone: { contains: query, mode: "insensitive" } },
+        ],
       },
-      select: { id: true, email: true, firstName: true, lastName: true, role: true, status: true, createdAt: true },
+      select: { id: true, email: true, firstName: true, lastName: true, phone: true, role: true, status: true, createdAt: true },
       take: limit,
       orderBy: { createdAt: "desc" },
     });
@@ -31,9 +36,14 @@ export class CrmRepository {
     return this.db.legacyClient.findMany({
       where: {
         migrationStatus: { not: "MIGRATED" },
-        OR: [{ email: { contains: query, mode: "insensitive" } }, { firstName: { contains: query, mode: "insensitive" } }, { lastName: { contains: query, mode: "insensitive" } }],
+        OR: [
+          { email: { contains: query, mode: "insensitive" } },
+          { firstName: { contains: query, mode: "insensitive" } },
+          { lastName: { contains: query, mode: "insensitive" } },
+          { phone: { contains: query, mode: "insensitive" } },
+        ],
       },
-      select: { id: true, externalId: true, email: true, firstName: true, lastName: true, migrationStatus: true },
+      select: { id: true, externalId: true, email: true, firstName: true, lastName: true, phone: true, migrationStatus: true },
       take: limit,
       orderBy: { firstName: "asc" },
     });

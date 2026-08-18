@@ -29,6 +29,7 @@ export class CrmService {
         id: c.id,
         externalId: c.externalId,
         email: c.email,
+        phone: c.phone,
         firstName: c.firstName,
         lastName: c.lastName,
         migrationStatus: c.migrationStatus,
