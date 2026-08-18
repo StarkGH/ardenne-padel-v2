@@ -21,7 +21,19 @@ export class CrmService {
   ) {}
 
   async search(query: string) {
-    return this.repo.searchUsers(query);
+    const [users, legacyClients] = await Promise.all([this.repo.searchUsers(query), this.repo.searchLegacyClients(query)]);
+    return [
+      ...users.map((u) => ({ source: "V2" as const, ...u })),
+      ...legacyClients.map((c) => ({
+        source: "LEGACY" as const,
+        id: c.id,
+        externalId: c.externalId,
+        email: c.email,
+        firstName: c.firstName,
+        lastName: c.lastName,
+        migrationStatus: c.migrationStatus,
+      })),
+    ];
   }
 
   async getClientFile(userId: string) {

@@ -20,6 +20,25 @@ export class CrmRepository {
     });
   }
 
+  /**
+   * La majorité des clients réels, pendant la migration Doinsport (CDC
+   * §7.3-§7.5), n'ont pas encore de compte V2 — `searchUsers` seul les
+   * rendait invisibles à la recherche admin. Un client déjà `MIGRATED`
+   * dispose d'un vrai compte `User` trouvable via `searchUsers` ; l'exclure
+   * ici évite un doublon visuel du même client sous deux formes.
+   */
+  searchLegacyClients(query: string, limit = 25) {
+    return this.db.legacyClient.findMany({
+      where: {
+        migrationStatus: { not: "MIGRATED" },
+        OR: [{ email: { contains: query, mode: "insensitive" } }, { firstName: { contains: query, mode: "insensitive" } }, { lastName: { contains: query, mode: "insensitive" } }],
+      },
+      select: { id: true, externalId: true, email: true, firstName: true, lastName: true, migrationStatus: true },
+      take: limit,
+      orderBy: { firstName: "asc" },
+    });
+  }
+
   findUserProfile(userId: string) {
     return this.db.user.findUnique({
       where: { id: userId },
