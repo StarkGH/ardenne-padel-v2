@@ -234,6 +234,13 @@ export interface LegacyOccupationParticipant {
   activeBookingsCount: number;
 }
 
+/** CDC §55 écran 3 — CA ventilé par canal de paiement (voir ADR-0030 addendum "CA planning étendu"). */
+export interface RevenueByChannel {
+  stripeCents: number;
+  walletCents: number;
+  doinsportCents: number;
+}
+
 /** CDC §55 écran 3 — occupation Doinsport-only affichée sur le planning (jamais créée/annulable depuis V2, voir ADR-0038 addendum). */
 export interface LegacyOccupation {
   id: string;
@@ -243,6 +250,8 @@ export interface LegacyOccupation {
   clientName: string | null;
   /** Total encaissé >= total dû (agrégé au niveau de la réservation, pas par participant — voir ADR-0038 addendum). */
   fullyPaid: boolean;
+  /** Somme des prix des participants non annulés (`participants[].price` Doinsport) — sert au CA planning. */
+  priceDueCents: number;
   participants: LegacyOccupationParticipant[];
   /** Note Doinsport de la réservation (`comment`), affichée en italique sur le planning. */
   comment: string | null;

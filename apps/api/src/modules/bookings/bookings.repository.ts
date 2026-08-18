@@ -57,6 +57,43 @@ export class BookingsRepository {
   }
 
   /**
+   * CDC §55 écran 3 — CA planning ventilé par canal de paiement V2 (Stripe
+   * vs wallet). Réservations `CONFIRMED`/`COMPLETED` uniquement, comme le
+   * reste du CA planning (voir ADR-0030 addendum "CA planning étendu").
+   * `WalletTransaction` n'a pas de relation Prisma vers `Booking` (simple
+   * `bookingId`, voir schema.prisma) — étape en deux temps plutôt qu'un
+   * filtre imbriqué : les ids de réservations de la période d'abord, puis
+   * une agrégation par table sur ces ids. `Payment` compte les paiements
+   * carte réussis (`purpose` réservation, pas achat de pack crédits) ;
+   * `WalletTransaction` compte les débits wallet liés à une réservation
+   * (`amountCents` signé négatif en base, valeur absolue ici).
+   */
+  async sumRevenueByChannelInRange(fromDate: Date, toDate: Date): Promise<{ stripeCents: number; walletCents: number }> {
+    const bookings = await this.db.booking.findMany({
+      where: { status: { in: ["CONFIRMED", "COMPLETED"] }, startAt: { gte: fromDate, lt: toDate } },
+      select: { id: true },
+    });
+    const bookingIds = bookings.map((b) => b.id);
+    if (bookingIds.length === 0) return { stripeCents: 0, walletCents: 0 };
+
+    const [stripeAgg, walletAgg] = await Promise.all([
+      this.db.payment.aggregate({
+        where: { bookingId: { in: bookingIds }, status: "SUCCEEDED", purpose: { in: ["BOOKING_FULL", "BOOKING_SHARE"] } },
+        _sum: { amountCents: true },
+      }),
+      this.db.walletTransaction.aggregate({
+        where: { bookingId: { in: bookingIds }, type: "DEBIT_BOOKING" },
+        _sum: { amountCents: true },
+      }),
+    ]);
+
+    return {
+      stripeCents: stripeAgg._sum.amountCents ?? 0,
+      walletCents: Math.abs(walletAgg._sum.amountCents ?? 0),
+    };
+  }
+
+  /**
    * CDC §55 écran 22 — accès, admin uniquement. Jamais fusionné dans
    * `findById`/`listInRange` (utilisés aussi par les parcours client) :
    * `codeCiphertext`/`codeIv` ne doivent jamais transiter par une réponse

@@ -58,9 +58,22 @@ export class BookingsAdminService {
       endAt: r.endAt.toISOString(),
       clientName: r.legacyClient ? `${r.legacyClient.firstName} ${r.legacyClient.lastName}` : null,
       fullyPaid: r.fullyPaid,
+      priceDueCents: r.priceDueCents,
       comment: r.comment,
       participants: r.participants.map((p) => ({ firstName: p.firstName, lastName: p.lastName, activeBookingsCount: p.activeBookingsCount })),
     }));
+  }
+
+  /** CDC §55 écran 3 — CA planning ventilé par canal (Stripe/wallet côté V2, Doinsport). */
+  async revenueByChannel(fromISO: string, toISO: string) {
+    const fromDate = new Date(fromISO);
+    const toDate = new Date(toISO);
+    const [channels, legacyRows] = await Promise.all([
+      this.repo.sumRevenueByChannelInRange(fromDate, toDate),
+      this.repo.listLegacyOccupationsInRange(fromDate, toDate),
+    ]);
+    const doinsportCents = legacyRows.reduce((sum, r) => sum + r.priceDueCents, 0);
+    return { stripeCents: channels.stripeCents, walletCents: channels.walletCents, doinsportCents };
   }
 
   /** CDC §55 écran 22 — accès (codes provisionnés/échoués), jamais le chiffré lui-même. */

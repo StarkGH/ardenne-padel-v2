@@ -115,10 +115,13 @@ describe("LegacySyncScheduler", () => {
 
     const booking = await prisma.legacyBooking.findFirstOrThrow({ where: { externalId: "b-participants-1" } });
     expect(booking.fullyPaid).toBe(false);
+    expect(booking.priceDueCents).toBe(2400);
+    expect(booking.priceReceivedCents).toBe(1200);
     const participants = await prisma.legacyBookingParticipant.findMany({ where: { legacyBookingId: booking.id } });
     expect(participants).toHaveLength(2);
     expect(participants.find((p) => p.legacyClientId === "client-alain-1")?.activeBookingsCount).toBe(101);
     expect(participants.find((p) => p.legacyClientId === "client-alain-2")?.activeBookingsCount).toBe(80);
+    expect(participants.every((p) => p.priceCents === 1200)).toBe(true);
     expect(participants.map((p) => p.lastName).sort()).toEqual(["Monfort", "Samray"]);
   });
 

@@ -2,7 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import { logger } from "@ardenne/shared";
 import type { LegacyDoinsportRepository } from "./legacy-doinsport.repository.js";
 import { decideClientLink } from "./client-dedup.js";
-import { computeFullyPaid, extractParticipants } from "./booking-participants.js";
+import { computeDueCents, computeFullyPaid, computeReceivedCents, extractParticipants } from "./booking-participants.js";
 import { normalizeEmail } from "../identity/identity.repository.js";
 import type { LegacyBookingProvider } from "./types.js";
 
@@ -113,6 +113,8 @@ export async function importBookings(
         const resolvedLegacyClientId =
           full.bookingOwnerClientId && knownClientExternalIds.has(full.bookingOwnerClientId) ? full.bookingOwnerClientId : null;
         const participants = extractParticipants(full.raw);
+        const priceDueCents = computeDueCents(full.raw);
+        const priceReceivedCents = computeReceivedCents(full.raw);
         const fullyPaid = computeFullyPaid(full.raw);
 
         for (const playgroundId of full.playgroundIds) {
@@ -129,6 +131,8 @@ export async function importBookings(
               endAt: new Date(full.endAt),
               canceled: full.canceled,
               comment: full.comment,
+              priceDueCents,
+              priceReceivedCents,
               fullyPaid,
               lastSyncedAt: new Date(),
             },
@@ -138,6 +142,8 @@ export async function importBookings(
               endAt: new Date(full.endAt),
               canceled: full.canceled,
               comment: full.comment,
+              priceDueCents,
+              priceReceivedCents,
               fullyPaid,
               lastSyncedAt: new Date(),
             },
@@ -155,6 +161,7 @@ export async function importBookings(
                 firstName: p.firstName,
                 lastName: p.lastName,
                 canceled: p.canceled,
+                priceCents: p.priceCents,
               })),
             });
           }

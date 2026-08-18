@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { DISPLAY_TIMEZONE } from "@/lib/datetime";
 import { Button, Card, ErrorBanner, Spinner } from "@/components/ui";
-import type { AdminBooking, Court, LegacyOccupation, LegacyOccupationParticipant } from "@/lib/types";
+import type { AdminBooking, Court, LegacyOccupation, LegacyOccupationParticipant, RevenueByChannel } from "@/lib/types";
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Brouillon",
@@ -99,6 +99,15 @@ function formatEuros(cents: number): string {
   return (cents / 100).toLocaleString("fr-BE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
 }
 
+function totalCents(r: RevenueByChannel): number {
+  return r.stripeCents + r.walletCents + r.doinsportCents;
+}
+
+/** "180,00 € (Stripe 100,00 € · Wallet 20,00 € · Doinsport 60,00 €)" */
+function formatRevenueBreakdown(r: RevenueByChannel): string {
+  return `${formatEuros(totalCents(r))} (Stripe ${formatEuros(r.stripeCents)} · Wallet ${formatEuros(r.walletCents)} · Doinsport ${formatEuros(r.doinsportCents)})`;
+}
+
 /** Même chose que `computeOccupancy` mais tous terrains confondus (somme des créneaux occupés/disponibles de chaque terrain). */
 function computeGlobalOccupancy(courtIds: string[], ranges: OccupiedRange[], fromMin: number, toMin: number): { occupied: number; total: number } {
   return courtIds.reduce(
@@ -132,11 +141,13 @@ export default function AdminPlanningPage() {
   const bodyScrollRef = useRef<HTMLDivElement>(null);
   const [bookings, setBookings] = useState<AdminBooking[] | null>(null);
   const [legacyOccupations, setLegacyOccupations] = useState<LegacyOccupation[] | null>(null);
-  // Chiffre d'affaires jour/semaine/mois : reconnu par date de jeu (startAt,
-  // cohérent avec le planning) et non par date de confirmation
-  // (Booking.confirmedAt, utilisée par /admin/reports pour la déclaration
-  // TVA — sémantique différente et volontairement pas réutilisée ici).
-  const [periodBookings, setPeriodBookings] = useState<AdminBooking[] | null>(null);
+  // Chiffre d'affaires jour/semaine/mois, ventilé par canal (Stripe/wallet
+  // côté V2, Doinsport) — calculé et agrégé côté serveur (voir
+  // `/admin/revenue-by-channel`), reconnu par date de jeu (startAt, cohérent
+  // avec le planning) et non par date de confirmation (Booking.confirmedAt,
+  // utilisée par /admin/reports pour la déclaration TVA — sémantique
+  // différente et volontairement pas réutilisée ici).
+  const [revenueByChannel, setRevenueByChannel] = useState<{ day: RevenueByChannel; week: RevenueByChannel; month: RevenueByChannel } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Mesurée après coup plutôt que devinée en pixels : l'en-tête de colonnes
@@ -147,7 +158,7 @@ export default function AdminPlanningPage() {
   // pour ce changement de taille précis, cause non identifiée).
   useLayoutEffect(() => {
     if (dateBarRef.current) setDateBarHeight(dateBarRef.current.offsetHeight);
-  }, [bookings, periodBookings, courts]);
+  }, [bookings, revenueByChannel, courts]);
 
   useEffect(() => {
     api.get<Court[]>("/courts").then(setCourts).catch(() => {});
@@ -168,41 +179,27 @@ export default function AdminPlanningPage() {
       .catch(() => setLegacyOccupations([])); // dégradé silencieusement — pas bloquant pour afficher le reste du planning
   }, [dateISO]);
 
-  // Fenêtre couvrant à la fois la semaine et le mois de dateISO (elles peuvent
-  // chevaucher deux mois calendaires) — un seul appel, jour/semaine/mois
-  // recalculés localement par simple filtrage plutôt que 3 requêtes.
+  // Ventilation Stripe/wallet/Doinsport calculée côté serveur (voir
+  // `bookings-admin.service.ts#revenueByChannel`) — un appel par période
+  // plutôt qu'un fetch de toutes les réservations du mois pour resommer côté
+  // client : la ventilation nécessite de croiser `Payment`/`WalletTransaction`,
+  // coûteux à répliquer sans un aller-retour réseau par réservation.
   useEffect(() => {
     const base = DateTime.fromISO(dateISO, { zone: DISPLAY_TIMEZONE });
-    const weekStart = base.startOf("week");
-    const weekEnd = base.endOf("week");
-    const monthStart = base.startOf("month");
-    const monthEnd = base.endOf("month");
-    const from = (weekStart < monthStart ? weekStart : monthStart).toUTC().toISO();
-    const to = (weekEnd > monthEnd ? weekEnd : monthEnd).toUTC().toISO();
-    setPeriodBookings(null);
-    api
-      .get<AdminBooking[]>(`/admin/bookings?from=${encodeURIComponent(from!)}&to=${encodeURIComponent(to!)}`)
-      .then(setPeriodBookings)
-      .catch(() => setPeriodBookings([])); // dégradé silencieusement — le CA jour/semaine/mois n'est pas bloquant pour le reste du planning
+    const fetchRange = (start: DateTime, end: DateTime) =>
+      api.get<RevenueByChannel>(`/admin/revenue-by-channel?from=${encodeURIComponent(start.toUTC().toISO()!)}&to=${encodeURIComponent(end.toUTC().toISO()!)}`);
+    setRevenueByChannel(null);
+    Promise.all([
+      fetchRange(base.startOf("day"), base.endOf("day")),
+      fetchRange(base.startOf("week"), base.endOf("week")),
+      fetchRange(base.startOf("month"), base.endOf("month")),
+    ])
+      .then(([day, week, month]) => setRevenueByChannel({ day, week, month }))
+      .catch(() => {}); // dégradé silencieusement — le CA jour/semaine/mois n'est pas bloquant pour le reste du planning
   }, [dateISO]);
 
   const activeBookings = useMemo(() => (bookings ?? []).filter((b) => b.status !== "CANCELED"), [bookings]);
   const legacyBlocks = useMemo(() => legacyOccupations ?? [], [legacyOccupations]);
-
-  const revenue = useMemo(() => {
-    const base = DateTime.fromISO(dateISO, { zone: DISPLAY_TIMEZONE });
-    const dayStart = base.startOf("day");
-    const dayEnd = base.endOf("day");
-    const weekStart = base.startOf("week");
-    const weekEnd = base.endOf("week");
-    const monthStart = base.startOf("month");
-    const monthEnd = base.endOf("month");
-    const sumIn = (rangeStart: DateTime, rangeEnd: DateTime) =>
-      (periodBookings ?? [])
-        .filter((b) => (b.status === "CONFIRMED" || b.status === "COMPLETED") && DateTime.fromISO(b.startAt).setZone(DISPLAY_TIMEZONE) >= rangeStart && DateTime.fromISO(b.startAt).setZone(DISPLAY_TIMEZONE) <= rangeEnd)
-        .reduce((sum, b) => sum + b.priceTotalCents, 0);
-    return { dayCents: sumIn(dayStart, dayEnd), weekCents: sumIn(weekStart, weekEnd), monthCents: sumIn(monthStart, monthEnd) };
-  }, [periodBookings, dateISO]);
 
   const { startMin, endMin, slotCount } = useMemo(() => {
     let start = DEFAULT_START_MIN;
@@ -285,13 +282,19 @@ export default function AdminPlanningPage() {
             <span className="font-medium text-slate-300">{formatOccupancy(globalDayOccupancy)}</span>
           </span>
         )}
-        {/* CA reconnu par date de jeu (startAt), pas par date de confirmation (voir /admin/reports pour la TVA) — inclut uniquement les réservations V2, pas les réservations Doinsport-only (prix non stocké localement). */}
-        {periodBookings && (
-          <span className="text-xs text-slate-500" title="Chiffre d'affaires réservations V2 (CONFIRMED/COMPLETED), par date de jeu — n'inclut pas les réservations Doinsport-only">
-            CA jour : <span className="font-medium text-slate-300">{formatEuros(revenue.dayCents)}</span> · semaine :{" "}
-            <span className="font-medium text-slate-300">{formatEuros(revenue.weekCents)}</span> · mois :{" "}
-            <span className="font-medium text-slate-300">{formatEuros(revenue.monthCents)}</span>
-          </span>
+        {/* CA reconnu par date de jeu (startAt), pas par date de confirmation (voir /admin/reports pour la TVA). Ventilé par canal : Stripe/wallet côté V2 (Payment/WalletTransaction), Doinsport (priceDueCents, prix de vente, encaissé ou non). Doit rester à l'intérieur du conteneur mesuré par `dateBarRef` (voir ADR-0030 addendum 4) : en sortir casserait le calage de l'en-tête colonnes en dessous. */}
+        {revenueByChannel && (
+          <div className="flex basis-full flex-col gap-0.5 text-xs text-slate-500" title="Chiffre d'affaires par date de jeu, ventilé par canal de paiement">
+            <p>
+              CA jour : <span className="font-medium text-slate-300">{formatRevenueBreakdown(revenueByChannel.day)}</span>
+            </p>
+            <p>
+              CA semaine : <span className="font-medium text-slate-300">{formatRevenueBreakdown(revenueByChannel.week)}</span>
+            </p>
+            <p>
+              CA mois : <span className="font-medium text-slate-300">{formatRevenueBreakdown(revenueByChannel.month)}</span>
+            </p>
+          </div>
         )}
       </div>
 

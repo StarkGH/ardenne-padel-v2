@@ -18,6 +18,7 @@ export interface ExtractedParticipant {
   lastName: string;
   legacyClientId: string | null;
   canceled: boolean;
+  priceCents: number;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -42,27 +43,34 @@ export function extractParticipants(raw: unknown): ExtractedParticipant[] {
       lastName: typeof client.lastName === "string" ? client.lastName : "",
       legacyClientId: typeof client.id === "string" ? client.id : null,
       canceled: Boolean(participant.canceled),
+      priceCents: asNumber(participant.price),
     };
   });
 }
 
-/** Total dû (participants non annulés) <= total encaissé (paiements réussis). */
-export function computeFullyPaid(raw: unknown): boolean {
-  const record = asRecord(raw);
-  const participants = asArray(record.participants);
-  const dueCents = participants.reduce<number>((sum, p) => {
+/** Somme des prix des participants non annulés (`participants[].price`). */
+export function computeDueCents(raw: unknown): number {
+  const participants = asArray(asRecord(raw).participants);
+  return participants.reduce<number>((sum, p) => {
     const participant = asRecord(p);
     if (Boolean(participant.canceled)) return sum;
     return sum + asNumber(participant.price);
   }, 0);
-  if (dueCents === 0) return true;
+}
 
-  const payments = asArray(record.payments);
-  const receivedCents = payments.reduce<number>((sum, p) => {
+/** Somme des paiements réussis (`payments[].payment.amountReceived`, statut `succeeded`). */
+export function computeReceivedCents(raw: unknown): number {
+  const payments = asArray(asRecord(raw).payments);
+  return payments.reduce<number>((sum, p) => {
     const payment = asRecord(asRecord(p).payment);
     if (payment.status !== "succeeded") return sum;
     return sum + asNumber(payment.amountReceived);
   }, 0);
+}
 
-  return receivedCents >= dueCents;
+/** Total dû (participants non annulés) <= total encaissé (paiements réussis). */
+export function computeFullyPaid(raw: unknown): boolean {
+  const dueCents = computeDueCents(raw);
+  if (dueCents === 0) return true;
+  return computeReceivedCents(raw) >= dueCents;
 }

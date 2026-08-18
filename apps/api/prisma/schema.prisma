@@ -277,8 +277,15 @@ model LegacyBooking {
   comment        String?
   lastSyncedAt   DateTime      @map("last_synced_at")
   rawHash        String?       @map("raw_hash")
-  /// CDC §55 écran 3 — total encaissé (`payments[]` Doinsport, statut
-  /// `succeeded`) >= total dû par les participants non annulés. Pas de
+  /// CDC §55 écran 3 — total dû par les participants non annulés
+  /// (`participants[].price` Doinsport, somme) et total encaissé
+  /// (`payments[]` statut `succeeded`, somme `amountReceived`). Conservés
+  /// séparément (pas seulement `fullyPaid`) pour permettre le calcul du CA
+  /// planning sur les réservations Doinsport (ADR-0038 addendum "CA lignes
+  /// Doinsport") sans recalcul depuis le payload brut à chaque page.
+  priceDueCents      Int           @default(0) @map("price_due_cents")
+  priceReceivedCents Int           @default(0) @map("price_received_cents")
+  /// Dérivé de `priceReceivedCents >= priceDueCents` à l'import. Pas de
   /// statut par participant : `payments[].participantId` ne correspond à
   /// aucun identifiant exposé par ailleurs dans `participants[]` (vérifié
   /// empiriquement sur plusieurs réservations réelles) — seule l'agrégation
@@ -310,6 +317,11 @@ model LegacyBookingParticipant {
   firstName           String        @map("first_name")
   lastName            String        @map("last_name")
   canceled            Boolean       @default(false)
+  /// Prix dû par ce participant (`participants[].price` Doinsport), fiable
+  /// par participant contrairement au statut de paiement (voir `fullyPaid`
+  /// sur `LegacyBooking`) — le prix est porté directement par l'objet
+  /// participant, pas déduit d'un rapprochement avec `payments[]`.
+  priceCents          Int           @default(0) @map("price_cents")
   /// Nombre de réservations non annulées de ce joueur, tel que connu par V2
   /// au moment du dernier import (uniquement ce que la synchro a couvert,
   /// pas l'historique complet Doinsport) — recalculé et réécrit sur

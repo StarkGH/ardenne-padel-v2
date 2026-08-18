@@ -185,6 +185,7 @@ describe("BookingsAdminService", () => {
         endAt: new Date(Date.now() + 25 * 3600_000),
         canceled: false,
         fullyPaid: false,
+        priceDueCents: 2400,
         comment: "Merci de préparer 4 raquettes",
         lastSyncedAt: new Date(),
       },
@@ -202,6 +203,7 @@ describe("BookingsAdminService", () => {
     const found = results.find((r) => r.id === legacyBooking.id);
 
     expect(found?.fullyPaid).toBe(false);
+    expect(found?.priceDueCents).toBe(2400);
     expect(found?.comment).toBe("Merci de préparer 4 raquettes");
     expect(found?.participants).toEqual(
       expect.arrayContaining([
@@ -210,6 +212,58 @@ describe("BookingsAdminService", () => {
       ]),
     );
     expect(found?.participants.some((p) => p.lastName === "Annulé")).toBe(false);
+  });
+
+  it("splits CA planning by payment channel — Stripe, wallet, Doinsport (ADR-0030 addendum \"CA planning étendu\")", async () => {
+    const stripeBooking = await createConfirmedBooking(30);
+    await prisma.payment.create({
+      data: {
+        booking: { connect: { id: stripeBooking.id } },
+        user: { connect: { id: organizerUserId } },
+        provider: "stripe",
+        providerPaymentId: `pi_channel_test_${Date.now()}_${Math.random()}`,
+        amountCents: 4800,
+        purpose: "BOOKING_FULL",
+        status: "SUCCEEDED",
+      },
+    });
+
+    const walletBooking = await createConfirmedBooking(31);
+    const walletAccount = await prisma.walletAccount.upsert({
+      where: { userId: organizerUserId },
+      update: {},
+      create: { user: { connect: { id: organizerUserId } } },
+    });
+    await prisma.walletTransaction.create({
+      data: {
+        walletAccount: { connect: { id: walletAccount.id } },
+        type: "DEBIT_BOOKING",
+        amountCents: -4800,
+        bookingId: walletBooking.id,
+      },
+    });
+
+    await prisma.legacyBooking.create({
+      data: {
+        externalId: `legacy-booking-channel-${Date.now()}`,
+        courtId,
+        startAt: new Date(Date.now() + 32 * 3600_000),
+        endAt: new Date(Date.now() + 33 * 3600_000),
+        canceled: false,
+        priceDueCents: 3600,
+        lastSyncedAt: new Date(),
+      },
+    });
+
+    const service = buildService();
+    const result = await service.revenueByChannel(
+      new Date(Date.now() - 3600_000).toISOString(),
+      new Date(Date.now() + 72 * 3600_000).toISOString(),
+    );
+
+    expect(result.stripeCents).toBe(4800);
+    expect(result.walletCents).toBe(4800);
+    expect(result.doinsportCents).toBe(3600);
   });
 
   it("cancels a confirmed booking past its client-facing cancellation deadline, auditing the override", async () => {
