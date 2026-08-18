@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DateTime } from "luxon";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { DISPLAY_TIMEZONE } from "@/lib/datetime";
 import { Button, Card, ErrorBanner, Spinner } from "@/components/ui";
-import type { AdminBooking, Court, LegacyOccupation } from "@/lib/types";
+import type { AdminBooking, Court, LegacyOccupation, LegacyOccupationParticipant } from "@/lib/types";
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Brouillon",
@@ -22,20 +22,20 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  DRAFT: "border-slate-300 bg-slate-100 text-slate-700",
-  CHECKOUT_PENDING: "border-amber-300 bg-amber-50 text-amber-800",
-  LEGACY_HOLD_PENDING: "border-amber-300 bg-amber-50 text-amber-800",
-  PAYMENT_PENDING: "border-amber-300 bg-amber-50 text-amber-800",
-  CONFIRMED: "border-emerald-300 bg-emerald-50 text-emerald-800",
-  CANCEL_PENDING: "border-orange-300 bg-orange-50 text-orange-800",
-  COMPLETED: "border-slate-300 bg-slate-100 text-slate-600",
-  FAILED: "border-red-300 bg-red-50 text-red-800",
-  MANUAL_REVIEW: "border-red-300 bg-red-50 text-red-800",
+  DRAFT: "border-slate-600 bg-slate-800 text-slate-200",
+  CHECKOUT_PENDING: "border-amber-700 bg-amber-500/15 text-amber-300",
+  LEGACY_HOLD_PENDING: "border-amber-700 bg-amber-500/15 text-amber-300",
+  PAYMENT_PENDING: "border-amber-700 bg-amber-500/15 text-amber-300",
+  CONFIRMED: "border-accent-700 bg-accent-600/15 text-accent-300",
+  CANCEL_PENDING: "border-orange-700 bg-orange-500/15 text-orange-300",
+  COMPLETED: "border-slate-600 bg-slate-800 text-slate-400",
+  FAILED: "border-red-700 bg-red-500/15 text-red-300",
+  MANUAL_REVIEW: "border-red-700 bg-red-500/15 text-red-300",
 };
 
 const SLOT_MINUTES = 30;
-const DEFAULT_START_MIN = 7 * 60;
-const DEFAULT_END_MIN = 23 * 60;
+const DEFAULT_START_MIN = 8 * 60;
+const DEFAULT_END_MIN = 23 * 60 + 30;
 
 function minutesOfDay(iso: string): number {
   const dt = DateTime.fromISO(iso, { zone: "utc" }).setZone(DISPLAY_TIMEZONE);
@@ -46,6 +46,68 @@ function minutesToLabel(min: number): string {
   const h = Math.floor(min / 60);
   const m = min % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/** "Alain Monfort (101) / Alain Samray (80)" — le texte s'enroule ensuite sur autant de lignes que la cellule le permet (voir `maxParticipantLines`), coupé seulement s'il en reste plus que la place disponible. */
+function formatParticipants(participants: LegacyOccupationParticipant[]): string {
+  return participants.map((p) => `${p.firstName} ${p.lastName} (${p.activeBookingsCount})`).join(" / ");
+}
+
+const ROW_HEIGHT_PX = 28; // doit rester synchronisé avec gridTemplateRows plus bas
+const CELL_VERTICAL_PADDING_PX = 4; // py-0.5 (2px haut + 2px bas)
+const TEXT_LINE_HEIGHT_PX = 14; // text-[11px] leading-tight
+const SOURCE_LABEL_LINES = 1; // ligne "Doinsport" réservée en bas de cellule
+const NOTE_LINES = 1; // ligne de note réservée si la réservation en a une
+
+/** Nombre de lignes disponibles pour les participants une fois la hauteur réelle de la cellule (fonction du nb de demi-heures), la ligne "Doinsport" du bas et l'éventuelle note prises en compte. */
+function maxParticipantLines(rowSpan: number, hasNote: boolean): number {
+  const cellHeightPx = rowSpan * ROW_HEIGHT_PX - CELL_VERTICAL_PADDING_PX;
+  const reservedLines = SOURCE_LABEL_LINES + (hasNote ? NOTE_LINES : 0);
+  const availablePx = cellHeightPx - reservedLines * TEXT_LINE_HEIGHT_PX;
+  return Math.max(1, Math.floor(availablePx / TEXT_LINE_HEIGHT_PX));
+}
+
+interface OccupiedRange {
+  courtId: string;
+  startAt: string;
+  endAt: string;
+}
+
+/** Taux de remplissage d'un terrain sur une fenêtre [fromMin, toMin) — nb de créneaux de 30 min occupés (V2 + Doinsport) sur le nombre total de créneaux de la fenêtre. */
+function computeOccupancy(courtId: string, ranges: OccupiedRange[], fromMin: number, toMin: number): { occupied: number; total: number } {
+  const total = Math.max(0, Math.round((toMin - fromMin) / SLOT_MINUTES));
+  const occupiedSlots = new Set<number>();
+  for (const r of ranges) {
+    if (r.courtId !== courtId) continue;
+    const rStart = Math.max(minutesOfDay(r.startAt), fromMin);
+    const rEnd = Math.min(minutesOfDay(r.endAt), toMin);
+    if (rEnd <= rStart) continue;
+    const startSlot = Math.floor((rStart - fromMin) / SLOT_MINUTES);
+    const endSlot = Math.ceil((rEnd - fromMin) / SLOT_MINUTES);
+    for (let s = startSlot; s < endSlot; s++) occupiedSlots.add(s);
+  }
+  return { occupied: occupiedSlots.size, total };
+}
+
+function formatOccupancy(o: { occupied: number; total: number }): string {
+  const pct = o.total > 0 ? Math.round((o.occupied / o.total) * 100) : 0;
+  return `${pct}% (${o.occupied}/${o.total})`;
+}
+
+/** Même formatage que `/admin/reports` (`formatEuros`) — cohérence visuelle entre les deux écrans. */
+function formatEuros(cents: number): string {
+  return (cents / 100).toLocaleString("fr-BE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+}
+
+/** Même chose que `computeOccupancy` mais tous terrains confondus (somme des créneaux occupés/disponibles de chaque terrain). */
+function computeGlobalOccupancy(courtIds: string[], ranges: OccupiedRange[], fromMin: number, toMin: number): { occupied: number; total: number } {
+  return courtIds.reduce(
+    (acc, courtId) => {
+      const o = computeOccupancy(courtId, ranges, fromMin, toMin);
+      return { occupied: acc.occupied + o.occupied, total: acc.total + o.total };
+    },
+    { occupied: 0, total: 0 },
+  );
 }
 
 // CDC §55 écran 3 — Planning multi-terrains. Grille horaire, une colonne par
@@ -59,9 +121,33 @@ export default function AdminPlanningPage() {
   const router = useRouter();
   const [dateISO, setDateISO] = useState(() => DateTime.now().setZone(DISPLAY_TIMEZONE).toISODate()!);
   const [courts, setCourts] = useState<Court[]>([]);
+  // Mesurée réellement plutôt que devinée en pixels : l'en-tête de colonnes
+  // (sticky, dans la grille) doit se caler juste sous la barre de date
+  // (sticky, au-dessus) — un décalage codé en dur s'est révélé faux à
+  // l'usage (l'en-tête colonnes chevauchait la ligne 8h-9h de la grille).
+  const dateBarRef = useRef<HTMLDivElement>(null);
+  const [dateBarHeight, setDateBarHeight] = useState(0);
+  // Synchronisation manuelle du défilement horizontal entre l'en-tête (sticky, hors du conteneur à défilement) et le corps de la grille.
+  const headerScrollRef = useRef<HTMLDivElement>(null);
+  const bodyScrollRef = useRef<HTMLDivElement>(null);
   const [bookings, setBookings] = useState<AdminBooking[] | null>(null);
   const [legacyOccupations, setLegacyOccupations] = useState<LegacyOccupation[] | null>(null);
+  // Chiffre d'affaires jour/semaine/mois : reconnu par date de jeu (startAt,
+  // cohérent avec le planning) et non par date de confirmation
+  // (Booking.confirmedAt, utilisée par /admin/reports pour la déclaration
+  // TVA — sémantique différente et volontairement pas réutilisée ici).
+  const [periodBookings, setPeriodBookings] = useState<AdminBooking[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Mesurée après coup plutôt que devinée en pixels : l'en-tête de colonnes
+  // (sticky, calé juste sous cette barre) doit suivre sa vraie hauteur, qui
+  // varie une fois les données (remplissage, CA) chargées et ajoutent des
+  // lignes. Dépend explicitement de ce qui fait varier son contenu plutôt
+  // que de compter sur un `ResizeObserver` (constaté peu fiable en direct
+  // pour ce changement de taille précis, cause non identifiée).
+  useLayoutEffect(() => {
+    if (dateBarRef.current) setDateBarHeight(dateBarRef.current.offsetHeight);
+  }, [bookings, periodBookings, courts]);
 
   useEffect(() => {
     api.get<Court[]>("/courts").then(setCourts).catch(() => {});
@@ -82,8 +168,41 @@ export default function AdminPlanningPage() {
       .catch(() => setLegacyOccupations([])); // dégradé silencieusement — pas bloquant pour afficher le reste du planning
   }, [dateISO]);
 
+  // Fenêtre couvrant à la fois la semaine et le mois de dateISO (elles peuvent
+  // chevaucher deux mois calendaires) — un seul appel, jour/semaine/mois
+  // recalculés localement par simple filtrage plutôt que 3 requêtes.
+  useEffect(() => {
+    const base = DateTime.fromISO(dateISO, { zone: DISPLAY_TIMEZONE });
+    const weekStart = base.startOf("week");
+    const weekEnd = base.endOf("week");
+    const monthStart = base.startOf("month");
+    const monthEnd = base.endOf("month");
+    const from = (weekStart < monthStart ? weekStart : monthStart).toUTC().toISO();
+    const to = (weekEnd > monthEnd ? weekEnd : monthEnd).toUTC().toISO();
+    setPeriodBookings(null);
+    api
+      .get<AdminBooking[]>(`/admin/bookings?from=${encodeURIComponent(from!)}&to=${encodeURIComponent(to!)}`)
+      .then(setPeriodBookings)
+      .catch(() => setPeriodBookings([])); // dégradé silencieusement — le CA jour/semaine/mois n'est pas bloquant pour le reste du planning
+  }, [dateISO]);
+
   const activeBookings = useMemo(() => (bookings ?? []).filter((b) => b.status !== "CANCELED"), [bookings]);
   const legacyBlocks = useMemo(() => legacyOccupations ?? [], [legacyOccupations]);
+
+  const revenue = useMemo(() => {
+    const base = DateTime.fromISO(dateISO, { zone: DISPLAY_TIMEZONE });
+    const dayStart = base.startOf("day");
+    const dayEnd = base.endOf("day");
+    const weekStart = base.startOf("week");
+    const weekEnd = base.endOf("week");
+    const monthStart = base.startOf("month");
+    const monthEnd = base.endOf("month");
+    const sumIn = (rangeStart: DateTime, rangeEnd: DateTime) =>
+      (periodBookings ?? [])
+        .filter((b) => (b.status === "CONFIRMED" || b.status === "COMPLETED") && DateTime.fromISO(b.startAt).setZone(DISPLAY_TIMEZONE) >= rangeStart && DateTime.fromISO(b.startAt).setZone(DISPLAY_TIMEZONE) <= rangeEnd)
+        .reduce((sum, b) => sum + b.priceTotalCents, 0);
+    return { dayCents: sumIn(dayStart, dayEnd), weekCents: sumIn(weekStart, weekEnd), monthCents: sumIn(monthStart, monthEnd) };
+  }, [periodBookings, dateISO]);
 
   const { startMin, endMin, slotCount } = useMemo(() => {
     let start = DEFAULT_START_MIN;
@@ -98,6 +217,25 @@ export default function AdminPlanningPage() {
     }
     return { startMin: start, endMin: end, slotCount: (end - start) / SLOT_MINUTES };
   }, [activeBookings, legacyBlocks]);
+
+  // Taux de remplissage par terrain : V2 + Doinsport confondus (occupation réelle du terrain, peu importe l'origine de la réservation).
+  const occupiedRanges: OccupiedRange[] = useMemo(
+    () => [
+      ...activeBookings.map((b) => ({ courtId: b.courtId, startAt: b.startAt, endAt: b.endAt })),
+      ...legacyBlocks.map((l) => ({ courtId: l.courtId, startAt: l.startAt, endAt: l.endAt })),
+    ],
+    [activeBookings, legacyBlocks],
+  );
+
+  // Taux de remplissage global (tous terrains confondus) affiché à côté de la date.
+  const globalWindowOccupancy = useMemo(
+    () => computeGlobalOccupancy(courts.map((c) => c.id), occupiedRanges, DEFAULT_START_MIN, DEFAULT_END_MIN),
+    [courts, occupiedRanges],
+  );
+  const globalDayOccupancy = useMemo(
+    () => computeGlobalOccupancy(courts.map((c) => c.id), occupiedRanges, startMin, endMin),
+    [courts, occupiedRanges, startMin, endMin],
+  );
 
   function goToNewBooking(courtId: string, slotStartMin: number) {
     const params = new URLSearchParams({ courtId, date: dateISO, time: minutesToLabel(slotStartMin) });
@@ -114,11 +252,12 @@ export default function AdminPlanningPage() {
           </Button>
         </Link>
       </div>
-      <div className="flex items-center gap-2">
+      {/* Figé au scroll (voir aussi l'en-tête de la grille plus bas, calé juste en dessous) — bords étendus jusqu'aux marges de `main` (px-4/md:px-8) pour ne pas laisser transparaître le contenu qui défile derrière. */}
+      <div ref={dateBarRef} className="sticky top-0 z-30 -mx-4 flex flex-wrap items-center gap-x-3 gap-y-1 bg-[#050912] px-4 py-2 md:-mx-8 md:px-8">
         <button
           type="button"
           onClick={() => setDateISO(DateTime.fromISO(dateISO).minus({ days: 1 }).toISODate()!)}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-300 text-lg text-slate-600 hover:bg-slate-50"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-600 text-lg text-slate-400 hover:bg-slate-800"
           aria-label="Jour précédent"
         >
           ←
@@ -127,52 +266,87 @@ export default function AdminPlanningPage() {
           type="date"
           value={dateISO}
           onChange={(e) => setDateISO(e.target.value)}
-          className="min-h-11 w-fit rounded-xl border border-slate-300 px-3 py-2 text-base"
+          className="min-h-11 w-fit rounded-xl border border-slate-600 bg-slate-950 px-3 py-2 text-base text-white [color-scheme:dark]"
         />
         <button
           type="button"
           onClick={() => setDateISO(DateTime.fromISO(dateISO).plus({ days: 1 }).toISODate()!)}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-300 text-lg text-slate-600 hover:bg-slate-50"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-600 text-lg text-slate-400 hover:bg-slate-800"
           aria-label="Jour suivant"
         >
           →
         </button>
-        <span className="text-sm font-medium capitalize text-slate-600">
+        <span className="text-sm font-medium capitalize text-slate-400">
           {DateTime.fromISO(dateISO).setLocale("fr").toFormat("cccc d MMMM")}
         </span>
+        {bookings && courts.length > 0 && (
+          <span className="text-xs text-slate-500">
+            Remplissage global — 8h-23h30 : <span className="font-medium text-slate-300">{formatOccupancy(globalWindowOccupancy)}</span> · Journée :{" "}
+            <span className="font-medium text-slate-300">{formatOccupancy(globalDayOccupancy)}</span>
+          </span>
+        )}
+        {/* CA reconnu par date de jeu (startAt), pas par date de confirmation (voir /admin/reports pour la TVA) — inclut uniquement les réservations V2, pas les réservations Doinsport-only (prix non stocké localement). */}
+        {periodBookings && (
+          <span className="text-xs text-slate-500" title="Chiffre d'affaires réservations V2 (CONFIRMED/COMPLETED), par date de jeu — n'inclut pas les réservations Doinsport-only">
+            CA jour : <span className="font-medium text-slate-300">{formatEuros(revenue.dayCents)}</span> · semaine :{" "}
+            <span className="font-medium text-slate-300">{formatEuros(revenue.weekCents)}</span> · mois :{" "}
+            <span className="font-medium text-slate-300">{formatEuros(revenue.monthCents)}</span>
+          </span>
+        )}
       </div>
 
       <ErrorBanner message={error} />
       {!bookings && !error && <Spinner />}
 
+      {/* En-tête colonnes hors du conteneur à défilement horizontal du corps, exprès : `overflow-x: auto` fait basculer `overflow-y` en véritable conteneur de scroll (règle CSS, non contournable même avec `overflow-y: visible` explicite — constaté en direct), ce qui casse le `sticky` de tout ce qui est à l'intérieur. Conteneur sticky séparé (même mécanisme que la barre de date) + défilement horizontal du corps recopié dessus en JS (onScroll) pour garder les colonnes alignées. */}
       {bookings && courts.length > 0 && (
-        <div className="overflow-x-auto">
+        <>
+          <div className="sticky z-20 overflow-hidden" style={{ top: dateBarHeight }} ref={headerScrollRef}>
+            <div
+              className="grid gap-px bg-slate-700 text-xs"
+              style={{ gridTemplateColumns: `56px repeat(${courts.length}, minmax(140px, 1fr))` }}
+            >
+              <div className="bg-slate-900" />
+              {courts.map((court) => {
+                const windowOccupancy = computeOccupancy(court.id, occupiedRanges, DEFAULT_START_MIN, DEFAULT_END_MIN);
+                const dayOccupancy = computeOccupancy(court.id, occupiedRanges, startMin, endMin);
+                return (
+                  <div key={court.id} className="flex flex-col items-center justify-center gap-0.5 bg-slate-900 px-2 py-1 text-center">
+                    <span className="text-sm font-semibold text-slate-200">{court.name}</span>
+                    <span className="text-[10px] leading-none text-slate-400" title="Taux de remplissage entre 8h et 23h30">
+                      8h-23h30 : {formatOccupancy(windowOccupancy)}
+                    </span>
+                    <span className="text-[10px] leading-none text-slate-500" title="Taux de remplissage sur l'ensemble de la journée affichée">
+                      Journée : {formatOccupancy(dayOccupancy)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           <div
-            className="grid gap-px bg-slate-200 text-xs"
-            style={{
-              gridTemplateColumns: `56px repeat(${courts.length}, minmax(140px, 1fr))`,
-              gridTemplateRows: `36px repeat(${slotCount}, 28px)`,
+            className="overflow-x-auto"
+            ref={bodyScrollRef}
+            onScroll={() => {
+              if (headerScrollRef.current && bodyScrollRef.current) headerScrollRef.current.scrollLeft = bodyScrollRef.current.scrollLeft;
             }}
           >
-            <div className="sticky left-0 z-10 bg-white" style={{ gridColumn: 1, gridRow: 1 }} />
-            {courts.map((court, courtIdx) => (
-              <div
-                key={court.id}
-                className="flex items-center justify-center bg-white px-2 text-center text-sm font-semibold text-slate-700"
-                style={{ gridColumn: courtIdx + 2, gridRow: 1 }}
-              >
-                {court.name}
-              </div>
-            ))}
-
+          <div
+            className="grid gap-px bg-slate-700 text-xs"
+            style={{
+              gridTemplateColumns: `56px repeat(${courts.length}, minmax(140px, 1fr))`,
+              gridTemplateRows: `repeat(${slotCount}, 28px)`,
+            }}
+          >
             {Array.from({ length: slotCount }, (_, slot) => {
               const slotStartMin = startMin + slot * SLOT_MINUTES;
               const showLabel = slotStartMin % 60 === 0;
               return (
                 <div
                   key={`label-${slot}`}
-                  className="sticky left-0 z-10 flex items-start justify-end bg-white pr-1 pt-0.5 text-[10px] text-slate-400"
-                  style={{ gridColumn: 1, gridRow: slot + 2 }}
+                  className="sticky left-0 z-10 flex items-start justify-end bg-slate-900 pr-1 pt-0.5 text-[10px] text-slate-400"
+                  style={{ gridColumn: 1, gridRow: slot + 1 }}
                 >
                   {showLabel ? minutesToLabel(slotStartMin) : ""}
                 </div>
@@ -207,8 +381,8 @@ export default function AdminPlanningPage() {
                     <Link
                       key={booking.id}
                       href={`/admin/bookings/${booking.id}`}
-                      className={`overflow-hidden rounded border px-1.5 py-0.5 text-[11px] leading-tight ${STATUS_COLORS[booking.status] ?? "border-slate-300 bg-white"}`}
-                      style={{ gridColumn: courtIdx + 2, gridRow: `${startSlot + 2} / ${endSlot + 2}` }}
+                      className={`overflow-hidden rounded border px-1.5 py-0.5 text-[11px] leading-tight ${STATUS_COLORS[booking.status] ?? "border-slate-600 bg-slate-900"}`}
+                      style={{ gridColumn: courtIdx + 2, gridRow: `${startSlot + 1} / ${endSlot + 1}` }}
                     >
                       <p className="truncate font-medium">
                         {booking.organizer ? `${booking.organizer.firstName} ${booking.organizer.lastName}` : "Client inconnu"}
@@ -216,24 +390,44 @@ export default function AdminPlanningPage() {
                       <p className="truncate text-slate-500">{STATUS_LABELS[booking.status] ?? booking.status}</p>
                     </Link>
                   ))}
-                  {courtLegacyBlocks.map(({ occupation, startSlot, endSlot }) => (
-                    <div
-                      key={occupation.id}
-                      title="Réservation Doinsport — non modifiable depuis Ardenne Padel V2"
-                      className="overflow-hidden rounded border border-dashed border-purple-300 bg-[repeating-linear-gradient(45deg,theme(colors.purple.50),theme(colors.purple.50)_4px,white_4px,white_8px)] px-1.5 py-0.5 text-[11px] leading-tight text-purple-800"
-                      style={{ gridColumn: courtIdx + 2, gridRow: `${startSlot + 2} / ${endSlot + 2}` }}
-                    >
-                      <p className="truncate font-medium">{occupation.clientName ?? "Client Doinsport"}</p>
-                      <p className="truncate text-purple-600">Doinsport</p>
-                    </div>
-                  ))}
+                  {courtLegacyBlocks.map(({ occupation, startSlot, endSlot }) => {
+                    const participantsLabel = occupation.participants.length > 0 ? formatParticipants(occupation.participants) : occupation.clientName ?? "Client Doinsport";
+                    const rowSpan = endSlot - startSlot;
+                    const hasNote = Boolean(occupation.comment);
+                    return (
+                      <div
+                        key={occupation.id}
+                        title={`${participantsLabel}${occupation.fullyPaid ? "" : " — paiement incomplet"}${occupation.comment ? ` — Note : ${occupation.comment}` : ""} — réservation Doinsport, non modifiable depuis Ardenne Padel V2`}
+                        className="flex h-full flex-col justify-between overflow-hidden rounded border border-dashed border-purple-700 bg-[repeating-linear-gradient(45deg,theme(colors.purple.950),theme(colors.purple.950)_4px,theme(colors.slate.900)_4px,theme(colors.slate.900)_8px)] px-1.5 py-0.5 text-[11px] leading-tight text-purple-300"
+                        style={{ gridColumn: courtIdx + 2, gridRow: `${startSlot + 1} / ${endSlot + 1}` }}
+                      >
+                        <p
+                          className="font-medium"
+                          style={{ display: "-webkit-box", WebkitLineClamp: maxParticipantLines(rowSpan, hasNote), WebkitBoxOrient: "vertical", overflow: "hidden" }}
+                        >
+                          {!occupation.fullyPaid && <span aria-label="Paiement incomplet">⚠️ </span>}
+                          {participantsLabel}
+                        </p>
+                        {hasNote && (
+                          <p
+                            className="shrink-0 italic text-purple-200"
+                            style={{ display: "-webkit-box", WebkitLineClamp: NOTE_LINES, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+                          >
+                            {occupation.comment}
+                          </p>
+                        )}
+                        {/* Dernière ligne de la cellule : signale que ce bloc vient de la synchro Doinsport, jamais une réservation créée depuis V2 (celles-ci s'affichent avec leur statut réel, style plein, plus haut). */}
+                        <p className="shrink-0 truncate text-purple-400">Doinsport</p>
+                      </div>
+                    );
+                  })}
                   {Array.from({ length: slotCount }, (_, slot) =>
                     occupied.has(slot) ? null : (
                       <button
                         key={`empty-${slot}`}
                         onClick={() => goToNewBooking(court.id, startMin + slot * SLOT_MINUTES)}
-                        className="bg-white hover:bg-emerald-50"
-                        style={{ gridColumn: courtIdx + 2, gridRow: slot + 2 }}
+                        className="bg-slate-900 hover:bg-accent-600/15"
+                        style={{ gridColumn: courtIdx + 2, gridRow: slot + 1 }}
                         title={`Créer une réservation à ${minutesToLabel(startMin + slot * SLOT_MINUTES)}`}
                       />
                     ),
@@ -242,7 +436,8 @@ export default function AdminPlanningPage() {
               );
             })}
           </div>
-        </div>
+          </div>
+        </>
       )}
 
       {bookings && courts.length === 0 && <p className="text-sm text-slate-500">Aucun terrain configuré.</p>}

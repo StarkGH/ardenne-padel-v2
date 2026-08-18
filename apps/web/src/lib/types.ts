@@ -227,15 +227,49 @@ export interface AdminBooking extends Booking {
   legacyBookingMapping?: LegacyBookingMapping | null;
 }
 
-export interface ClientSearchResult {
-  id: string;
-  email: string;
+export interface LegacyOccupationParticipant {
   firstName: string;
   lastName: string;
-  role: Role;
-  status: UserStatus;
-  createdAt: string;
+  /** Réservations non annulées connues de ce joueur (calculé à l'import, pas à l'affichage). */
+  activeBookingsCount: number;
 }
+
+/** CDC §55 écran 3 — occupation Doinsport-only affichée sur le planning (jamais créée/annulable depuis V2, voir ADR-0038 addendum). */
+export interface LegacyOccupation {
+  id: string;
+  courtId: string;
+  startAt: string;
+  endAt: string;
+  clientName: string | null;
+  /** Total encaissé >= total dû (agrégé au niveau de la réservation, pas par participant — voir ADR-0038 addendum). */
+  fullyPaid: boolean;
+  participants: LegacyOccupationParticipant[];
+  /** Note Doinsport de la réservation (`comment`), affichée en italique sur le planning. */
+  comment: string | null;
+}
+
+export type ClientSearchResult =
+  | {
+      source: "V2";
+      id: string;
+      email: string;
+      phone: string | null;
+      firstName: string;
+      lastName: string;
+      role: Role;
+      status: UserStatus;
+      createdAt: string;
+    }
+  | {
+      source: "LEGACY";
+      id: string;
+      externalId: string;
+      email: string | null;
+      phone: string | null;
+      firstName: string;
+      lastName: string;
+      migrationStatus: ClientMigrationStatus;
+    };
 
 export interface ClientProfile {
   id: string;

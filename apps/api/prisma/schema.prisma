@@ -277,11 +277,49 @@ model LegacyBooking {
   comment        String?
   lastSyncedAt   DateTime      @map("last_synced_at")
   rawHash        String?       @map("raw_hash")
+  /// CDC §55 écran 3 — total encaissé (`payments[]` Doinsport, statut
+  /// `succeeded`) >= total dû par les participants non annulés. Pas de
+  /// statut par participant : `payments[].participantId` ne correspond à
+  /// aucun identifiant exposé par ailleurs dans `participants[]` (vérifié
+  /// empiriquement sur plusieurs réservations réelles) — seule l'agrégation
+  /// au niveau de la réservation est fiable. `true` par défaut (pas d'alerte
+  /// tant que le calcul n'a pas explicitement établi un manque).
+  fullyPaid      Boolean       @default(true) @map("fully_paid")
+  participants   LegacyBookingParticipant[]
 
   @@unique([externalId, courtId])
   @@index([courtId, startAt, endAt])
   @@index([legacyClientId])
   @@map("legacy_bookings")
+}
+
+/// CDC §55 écran 3 — participants d'une réservation Doinsport, dénormalisés
+/// à l'import pour affichage direct sur le planning sans recalcul à chaque
+/// page (voir ADR-0038 addendum "Planning enrichi"). Une ligne par
+/// participant et par import (recréées à chaque resynchro de la réservation
+/// parente, cascade sur `LegacyBooking`) plutôt qu'un upsert incrémental :
+/// la liste des participants d'une réservation Doinsport n'a pas d'id
+/// stable côté API, plus simple et fiable de tout regénérer.
+model LegacyBookingParticipant {
+  id                  String        @id @default(uuid())
+  legacyBookingId     String        @map("legacy_booking_id")
+  legacyBooking       LegacyBooking @relation(fields: [legacyBookingId], references: [id], onDelete: Cascade)
+  /// externalId du LegacyClient si résolu (voir `bookingOwnerClientId`,
+  /// même dépendance qu'ailleurs sur le mapping DTO) — nullable sinon.
+  legacyClientId      String?       @map("legacy_client_id")
+  firstName           String        @map("first_name")
+  lastName            String        @map("last_name")
+  canceled            Boolean       @default(false)
+  /// Nombre de réservations non annulées de ce joueur, tel que connu par V2
+  /// au moment du dernier import (uniquement ce que la synchro a couvert,
+  /// pas l'historique complet Doinsport) — recalculé et réécrit sur
+  /// l'ensemble des lignes de ce client à chaque import plutôt qu'à
+  /// l'affichage (voir ADR-0038 addendum).
+  activeBookingsCount Int           @default(0) @map("active_bookings_count")
+
+  @@index([legacyBookingId])
+  @@index([legacyClientId])
+  @@map("legacy_booking_participants")
 }
 
 /// Traçabilité des exécutions du job de synchro périodique (CDC §16.2,

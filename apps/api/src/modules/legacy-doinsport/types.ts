@@ -93,4 +93,15 @@ export interface LegacyBookingProvider {
   resolveLegacyPrice(input: LegacyPriceInput): Promise<LegacyPriceReference>;
   createBooking(input: LegacyCreateBooking): Promise<LegacyBookingDto>;
   cancelBooking(id: string, options: LegacyCancelOptions): Promise<LegacyBookingDto>;
+  /**
+   * CDC §55 écran 3 — nombre réel de réservations Doinsport (toutes dates,
+   * pas seulement ce que V2 a synchronisé) d'un client, tous terrains
+   * confondus. Interrogé en direct à chaque import plutôt que calculé
+   * localement : `listBookings()` (et le listing Doinsport en général)
+   * n'expose jamais les réservations déjà passées, quelle que soit la
+   * plage de dates demandée (vérifié empiriquement) — un compteur local
+   * serait donc structurellement borné aux réservations futures/récentes
+   * déjà synchronisées, jamais "l'ensemble Doinsport" demandé.
+   */
+  countActiveBookingsForClient(legacyClientId: string): Promise<number>;
 }

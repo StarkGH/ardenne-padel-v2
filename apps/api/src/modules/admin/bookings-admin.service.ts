@@ -48,6 +48,21 @@ export class BookingsAdminService {
     return this.repo.listInRange(new Date(fromISO), new Date(toISO));
   }
 
+  /** CDC §55 écran 3 — occupations Doinsport-only pour le planning (voir ADR-0038 addendum). */
+  async listLegacyForDashboard(fromISO: string, toISO: string) {
+    const rows = await this.repo.listLegacyOccupationsInRange(new Date(fromISO), new Date(toISO));
+    return rows.map((r) => ({
+      id: r.id,
+      courtId: r.courtId,
+      startAt: r.startAt.toISOString(),
+      endAt: r.endAt.toISOString(),
+      clientName: r.legacyClient ? `${r.legacyClient.firstName} ${r.legacyClient.lastName}` : null,
+      fullyPaid: r.fullyPaid,
+      comment: r.comment,
+      participants: r.participants.map((p) => ({ firstName: p.firstName, lastName: p.lastName, activeBookingsCount: p.activeBookingsCount })),
+    }));
+  }
+
   /** CDC §55 écran 22 — accès (codes provisionnés/échoués), jamais le chiffré lui-même. */
   async listAccessGrants(fromISO: string, toISO: string) {
     return this.repo.listAccessGrantsInRange(new Date(fromISO), new Date(toISO));

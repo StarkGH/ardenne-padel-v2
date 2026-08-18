@@ -43,6 +43,11 @@ function str(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+function num(value: unknown): number {
+  const n = typeof value === "string" ? Number.parseInt(value, 10) : value;
+  return typeof n === "number" && Number.isFinite(n) ? n : 0;
+}
+
 /**
  * Implémentation `LegacyBookingProvider` (CDC §12.1). C'est la seule classe
  * du système autorisée à connaître les endpoints HTTP Doinsport, le format
@@ -194,6 +199,34 @@ export class LegacyDoinsportAdapter implements LegacyBookingProvider {
       page += 1;
     }
     return all;
+  }
+
+  /**
+   * CDC §55 écran 3 — décompte réel côté Doinsport, tous terrains et toutes
+   * dates confondus (pas borné à ce que V2 a déjà synchronisé). Réutilise
+   * le filtre `participants.client.id` (confirmé fonctionnel en direct) et
+   * le même découpage passé/futur que `listBookings()` — sans lui,
+   * `filter[status]` par défaut n'expose que le futur. Ne récupère qu'un
+   * item par page (`itemsPerPage: 1`) : seul `totalItems` nous intéresse.
+   */
+  async countActiveBookingsForClient(legacyClientId: string): Promise<number> {
+    return this.withLegacyErrorMapping(async () => {
+      const baseParams = {
+        "club.id": this.http.clubId,
+        itemsPerPage: 1,
+        page: 1,
+        canceled: "false",
+        getTotalItems: "true",
+        "participants.client.id": legacyClientId,
+        "startAt[after]": "2015-01-01T00:00:00.000Z",
+        "startAt[before]": "2035-01-01T00:00:00.000Z",
+      };
+      const [before, after] = await Promise.all([
+        this.http.call<Record<string, unknown>>(`/clubs/bookings/listing`, { ...baseParams, "filter[status]": "before" }),
+        this.http.call<Record<string, unknown>>(`/clubs/bookings/listing`, { ...baseParams, "filter[status]": "after" }),
+      ]);
+      return num(before.totalItems) + num(after.totalItems);
+    });
   }
 
   async getBooking(id: string): Promise<LegacyBookingDto> {

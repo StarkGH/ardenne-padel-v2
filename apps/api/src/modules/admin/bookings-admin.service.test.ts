@@ -143,6 +143,75 @@ describe("BookingsAdminService", () => {
     expect(results.some((b) => b.id === booking.id)).toBe(true);
   });
 
+  it("lists Doinsport-only occupations within a date range for the planning grid (CDC §55 écran 3)", async () => {
+    const legacyClient = await prisma.legacyClient.create({
+      data: { externalId: `ext-legacy-${Date.now()}-${Math.random()}`, firstName: "Jean", lastName: "Legacy", lastSyncedAt: new Date() },
+    });
+    const legacyBooking = await prisma.legacyBooking.create({
+      data: {
+        externalId: `legacy-booking-${Date.now()}`,
+        courtId,
+        legacyClientId: legacyClient.externalId,
+        startAt: new Date(Date.now() + 24 * 3600_000),
+        endAt: new Date(Date.now() + 25 * 3600_000),
+        canceled: false,
+        lastSyncedAt: new Date(),
+      },
+    });
+    const canceledBooking = await prisma.legacyBooking.create({
+      data: {
+        externalId: `legacy-booking-canceled-${Date.now()}`,
+        courtId,
+        startAt: new Date(Date.now() + 26 * 3600_000),
+        endAt: new Date(Date.now() + 27 * 3600_000),
+        canceled: true,
+        lastSyncedAt: new Date(),
+      },
+    });
+    const service = buildService();
+
+    const results = await service.listLegacyForDashboard(new Date(Date.now() - 3600_000).toISOString(), new Date(Date.now() + 72 * 3600_000).toISOString());
+
+    expect(results.some((r) => r.id === legacyBooking.id && r.clientName === "Jean Legacy")).toBe(true);
+    expect(results.some((r) => r.id === canceledBooking.id)).toBe(false);
+  });
+
+  it("includes non-canceled participants (with their active bookings count) and the paid status on Doinsport occupations", async () => {
+    const legacyBooking = await prisma.legacyBooking.create({
+      data: {
+        externalId: `legacy-booking-participants-${Date.now()}`,
+        courtId,
+        startAt: new Date(Date.now() + 24 * 3600_000),
+        endAt: new Date(Date.now() + 25 * 3600_000),
+        canceled: false,
+        fullyPaid: false,
+        comment: "Merci de préparer 4 raquettes",
+        lastSyncedAt: new Date(),
+      },
+    });
+    await prisma.legacyBookingParticipant.createMany({
+      data: [
+        { legacyBookingId: legacyBooking.id, firstName: "Alain", lastName: "Monfort", canceled: false, activeBookingsCount: 101 },
+        { legacyBookingId: legacyBooking.id, firstName: "Alain", lastName: "Samray", canceled: false, activeBookingsCount: 80 },
+        { legacyBookingId: legacyBooking.id, firstName: "Retrait", lastName: "Annulé", canceled: true, activeBookingsCount: 5 },
+      ],
+    });
+    const service = buildService();
+
+    const results = await service.listLegacyForDashboard(new Date(Date.now() - 3600_000).toISOString(), new Date(Date.now() + 72 * 3600_000).toISOString());
+    const found = results.find((r) => r.id === legacyBooking.id);
+
+    expect(found?.fullyPaid).toBe(false);
+    expect(found?.comment).toBe("Merci de préparer 4 raquettes");
+    expect(found?.participants).toEqual(
+      expect.arrayContaining([
+        { firstName: "Alain", lastName: "Monfort", activeBookingsCount: 101 },
+        { firstName: "Alain", lastName: "Samray", activeBookingsCount: 80 },
+      ]),
+    );
+    expect(found?.participants.some((p) => p.lastName === "Annulé")).toBe(false);
+  });
+
   it("cancels a confirmed booking past its client-facing cancellation deadline, auditing the override", async () => {
     const booking = await createConfirmedBooking();
     const service = buildService();

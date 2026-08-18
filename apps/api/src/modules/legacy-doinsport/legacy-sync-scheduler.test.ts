@@ -54,7 +54,7 @@ describe("LegacySyncScheduler", () => {
 
   /** Double contrôlable : renvoie une réservation fixe, avec un frein optionnel pour tester la garde anti-chevauchement. */
   class ControllableProvider extends FakeLegacyProvider {
-    bookings: { id: string; startAt: string; endAt: string; playgroundIds: string[] }[] = [];
+    bookings: { id: string; startAt: string; endAt: string; playgroundIds: string[]; raw?: unknown }[] = [];
     blocker: Promise<void> = Promise.resolve();
 
     override async listBookings(_range: DateRange) {
@@ -63,7 +63,7 @@ describe("LegacySyncScheduler", () => {
     }
     override async getBooking(id: string) {
       const b = this.bookings.find((x) => x.id === id)!;
-      return { id: b.id, startAt: b.startAt, endAt: b.endAt, canceled: false, comment: null, playgroundIds: b.playgroundIds, accessCodes: [], bookingOwnerClientId: null, raw: null };
+      return { id: b.id, startAt: b.startAt, endAt: b.endAt, canceled: false, comment: null, playgroundIds: b.playgroundIds, accessCodes: [], bookingOwnerClientId: null, raw: b.raw ?? null };
     }
   }
 
@@ -86,6 +86,40 @@ describe("LegacySyncScheduler", () => {
     expect(runs[0]!.status).toBe("SUCCESS");
     const booking = await prisma.legacyBooking.findFirst({ where: { externalId: "b1" } });
     expect(booking).not.toBeNull();
+  });
+
+  it("importBookings écrit les participants dénormalisés (nom + compteur de réservations actives) et le statut de paiement (CDC §55 écran 3)", async () => {
+    const { legacyPlaygroundId } = await createCourtWithMapping();
+    const provider = new ControllableProvider();
+    provider.bookings = [
+      {
+        id: "b-participants-1",
+        startAt: new Date().toISOString(),
+        endAt: new Date(Date.now() + 3600_000).toISOString(),
+        playgroundIds: [legacyPlaygroundId],
+        raw: {
+          participants: [
+            { client: { id: "client-alain-1", firstName: "Alain", lastName: "Monfort" }, canceled: false, price: 1200 },
+            { client: { id: "client-alain-2", firstName: "Alain", lastName: "Samray" }, canceled: false, price: 1200 },
+          ],
+          payments: [{ payment: { status: "succeeded", amountReceived: 1200 } }], // ne couvre qu'un des deux participants
+        },
+      },
+    ];
+    // Compteur interrogé en direct auprès de Doinsport (countActiveBookingsForClient),
+    // jamais recalculé depuis les lignes locales — voir ADR-0038 addendum "Planning enrichi".
+    provider.activeBookingsCountByClient = { "client-alain-1": 101, "client-alain-2": 80 };
+    const { scheduler } = buildScheduler(provider);
+
+    await scheduler.runFastSync();
+
+    const booking = await prisma.legacyBooking.findFirstOrThrow({ where: { externalId: "b-participants-1" } });
+    expect(booking.fullyPaid).toBe(false);
+    const participants = await prisma.legacyBookingParticipant.findMany({ where: { legacyBookingId: booking.id } });
+    expect(participants).toHaveLength(2);
+    expect(participants.find((p) => p.legacyClientId === "client-alain-1")?.activeBookingsCount).toBe(101);
+    expect(participants.find((p) => p.legacyClientId === "client-alain-2")?.activeBookingsCount).toBe(80);
+    expect(participants.map((p) => p.lastName).sort()).toEqual(["Monfort", "Samray"]);
   });
 
   it("runReconciliation trace un run CLIENTS puis un run BOOKINGS", async () => {

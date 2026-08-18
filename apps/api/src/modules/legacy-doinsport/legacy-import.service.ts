@@ -2,6 +2,7 @@ import type { PrismaClient } from "@prisma/client";
 import { logger } from "@ardenne/shared";
 import type { LegacyDoinsportRepository } from "./legacy-doinsport.repository.js";
 import { decideClientLink } from "./client-dedup.js";
+import { computeFullyPaid, extractParticipants } from "./booking-participants.js";
 import { normalizeEmail } from "../identity/identity.repository.js";
 import type { LegacyBookingProvider } from "./types.js";
 
@@ -104,18 +105,21 @@ export async function importBookings(
     const mappings = await repo.listActiveCourtMappings();
     const courtIdByPlaygroundId = new Map(mappings.map((m) => [m.legacyPlaygroundId, m.court.id]));
     const knownClientExternalIds = new Set((await prisma.legacyClient.findMany({ select: { externalId: true } })).map((c) => c.externalId));
+    const touchedClientIds = new Set<string>();
 
     for (const summary of summaries) {
       try {
         const full = await adapter.getBooking(summary.id);
         const resolvedLegacyClientId =
           full.bookingOwnerClientId && knownClientExternalIds.has(full.bookingOwnerClientId) ? full.bookingOwnerClientId : null;
+        const participants = extractParticipants(full.raw);
+        const fullyPaid = computeFullyPaid(full.raw);
 
         for (const playgroundId of full.playgroundIds) {
           const courtId = courtIdByPlaygroundId.get(playgroundId);
           if (!courtId) continue; // terrain hors périmètre V2 (autre sport/activité au même club)
 
-          await prisma.legacyBooking.upsert({
+          const booking = await prisma.legacyBooking.upsert({
             where: { externalId_courtId: { externalId: full.id, courtId } },
             create: {
               externalId: full.id,
@@ -125,6 +129,7 @@ export async function importBookings(
               endAt: new Date(full.endAt),
               canceled: full.canceled,
               comment: full.comment,
+              fullyPaid,
               lastSyncedAt: new Date(),
             },
             update: {
@@ -133,14 +138,47 @@ export async function importBookings(
               endAt: new Date(full.endAt),
               canceled: full.canceled,
               comment: full.comment,
+              fullyPaid,
               lastSyncedAt: new Date(),
             },
           });
+
+          // Pas d'id stable côté API Doinsport pour un participant — on
+          // regénère la liste à chaque resynchro plutôt que de diffuser un
+          // upsert incrémental (CDC §55 écran 3, ADR-0038 addendum).
+          await prisma.legacyBookingParticipant.deleteMany({ where: { legacyBookingId: booking.id } });
+          if (participants.length > 0) {
+            await prisma.legacyBookingParticipant.createMany({
+              data: participants.map((p) => ({
+                legacyBookingId: booking.id,
+                legacyClientId: p.legacyClientId,
+                firstName: p.firstName,
+                lastName: p.lastName,
+                canceled: p.canceled,
+              })),
+            });
+          }
+          for (const p of participants) {
+            if (p.legacyClientId) touchedClientIds.add(p.legacyClientId);
+          }
           itemsChanged += 1;
         }
       } catch (err) {
         itemsFailed += 1;
         logger.error({ event: "LegacyBookingImportFailed", bookingId: summary.id, err }, "échec import d'une réservation Legacy");
+      }
+    }
+
+    // Compteur "réservations non annulées" par joueur — interrogé en direct
+    // auprès de Doinsport (tout l'historique, pas seulement ce que V2 a
+    // synchronisé, voir `countActiveBookingsForClient`), une seule fois par
+    // client touché plutôt qu'à chaque page (voir booking-participants.ts).
+    for (const legacyClientId of touchedClientIds) {
+      try {
+        const activeCount = await adapter.countActiveBookingsForClient(legacyClientId);
+        await prisma.legacyBookingParticipant.updateMany({ where: { legacyClientId }, data: { activeBookingsCount: activeCount } });
+      } catch (err) {
+        logger.error({ event: "LegacyClientBookingCountFailed", legacyClientId, err }, "échec du décompte des réservations d'un joueur");
       }
     }
 

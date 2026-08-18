@@ -38,6 +38,25 @@ export class BookingsRepository {
   }
 
   /**
+   * CDC §55 écran 3 — occupations Doinsport-only à afficher sur le planning
+   * admin (ADR-0033 les couvre déjà côté anti-collision/disponibilité, mais
+   * la grille visuelle ne les affichait jamais — gap trouvé en vérifiant le
+   * planning en direct). Jamais fusionné dans `listInRange` : ce sont deux
+   * tables distinctes (`Booking` V2 vs `LegacyBooking` importé), pas le même
+   * objet métier.
+   */
+  listLegacyOccupationsInRange(fromDate: Date, toDate: Date) {
+    return this.db.legacyBooking.findMany({
+      where: { canceled: false, startAt: { lt: toDate }, endAt: { gt: fromDate } },
+      orderBy: { startAt: "asc" },
+      include: {
+        legacyClient: { select: { firstName: true, lastName: true } },
+        participants: { where: { canceled: false }, orderBy: { activeBookingsCount: "desc" } },
+      },
+    });
+  }
+
+  /**
    * CDC §55 écran 22 — accès, admin uniquement. Jamais fusionné dans
    * `findById`/`listInRange` (utilisés aussi par les parcours client) :
    * `codeCiphertext`/`codeIv` ne doivent jamais transiter par une réponse
