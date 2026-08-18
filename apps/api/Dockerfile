@@ -2,6 +2,11 @@
 # — nécessaire pour installer les workspaces packages/* dont dépend cette image.
 
 FROM node:20-alpine AS base
+# Le moteur Prisma (même "native"/musl correctement ciblé) charge libssl
+# dynamiquement au runtime — node:20-alpine ne l'installe pas par défaut.
+# Sans ça : "Error loading shared library libssl.so.1.1: No such file or
+# directory" au démarrage, trouvé au premier vrai déploiement (VPS).
+RUN apk add --no-cache openssl
 WORKDIR /app
 
 FROM base AS deps
