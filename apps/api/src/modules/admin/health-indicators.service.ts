@@ -34,7 +34,8 @@ export class HealthIndicatorsService {
     const kioskOfflineBefore = new Date(now.getTime() - this.config.KIOSK_OFFLINE_THRESHOLD_MINUTES * 60_000);
 
     const [
-      lastSync,
+      lastMappingSync,
+      lastSyncRun,
       legacySyncErrors,
       bookingsManualReview,
       paymentsFailed,
@@ -46,6 +47,7 @@ export class HealthIndicatorsService {
       notificationsFailed,
     ] = await Promise.all([
       this.db.legacyBookingMapping.aggregate({ _max: { lastSyncAt: true } }),
+      this.db.legacySyncRun.aggregate({ where: { status: "SUCCESS" }, _max: { finishedAt: true } }),
       this.db.legacyBookingMapping.count({
         where: { OR: [{ syncStatus: "FAILED" }, { syncStatus: "CONFIRMATION_UNKNOWN" }, { syncStatus: "CANCEL_PENDING", lastError: { not: null } }] },
       }),
@@ -59,8 +61,19 @@ export class HealthIndicatorsService {
       this.db.notificationOutbox.count({ where: { status: "FAILED" } }),
     ]);
 
+    // "Dernière synchro Legacy" doit refléter les deux sens de la synchro
+    // Dual Run : le scheduler périodique Doinsport → V2 (ADR-0035,
+    // legacy_sync_runs — le plus actif des deux, toutes les 60s/300s) et
+    // l'écriture V2 → Doinsport à la confirmation d'une réservation
+    // (legacy_booking_mappings, CDC §27.1). Prendre le plus récent des deux
+    // plutôt qu'une seule source, sous peine d'afficher "jamais" alors que
+    // le scheduler tourne activement en tâche de fond.
+    const mappingAt = lastMappingSync._max.lastSyncAt;
+    const runAt = lastSyncRun._max.finishedAt;
+    const lastLegacySyncAt = !mappingAt ? runAt : !runAt ? mappingAt : mappingAt > runAt ? mappingAt : runAt;
+
     return {
-      lastLegacySyncAt: lastSync._max.lastSyncAt,
+      lastLegacySyncAt,
       legacySyncErrors,
       bookingsManualReview,
       paymentsFailed,
