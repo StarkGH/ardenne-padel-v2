@@ -38,7 +38,7 @@ function EmailChangeConfirmContent() {
     return (
       <div className="flex flex-col gap-3">
         <ErrorBanner message={error} />
-        <Link href="/profile" className="text-sm font-medium text-emerald-700">
+        <Link href="/profile" className="text-sm font-medium text-accent-600">
           Retour au profil
         </Link>
       </div>
@@ -48,10 +48,10 @@ function EmailChangeConfirmContent() {
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-xl font-bold">Adresse e-mail mise à jour !</h1>
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-slate-400">
         Votre nouvelle adresse <span className="font-medium">{newEmail}</span> est désormais confirmée.
       </p>
-      <Link href="/profile" className="text-sm font-medium text-emerald-700">
+      <Link href="/profile" className="text-sm font-medium text-accent-600">
         Retour au profil
       </Link>
     </div>

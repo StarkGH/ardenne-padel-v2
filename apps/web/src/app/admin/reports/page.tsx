@@ -66,7 +66,7 @@ export default function AdminReportsPage() {
             type="date"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
-            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-base"
+            className="min-h-11 rounded-xl border border-slate-600 bg-slate-950 px-3 py-2 text-base text-white [color-scheme:dark]"
           />
         </Field>
         <Field label="Au">
@@ -74,7 +74,7 @@ export default function AdminReportsPage() {
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-base"
+            className="min-h-11 rounded-xl border border-slate-600 bg-slate-950 px-3 py-2 text-base text-white [color-scheme:dark]"
           />
         </Field>
         <Button className="w-auto shrink-0" onClick={load} disabled={loading}>
@@ -124,7 +124,7 @@ export default function AdminReportsPage() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[480px] text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+                  <tr className="border-b border-slate-800 text-left text-xs text-slate-500">
                     <th className="py-2 pr-2">Date</th>
                     <th className="py-2 pr-2 text-right">Réservations</th>
                     <th className="py-2 pr-2 text-right">TVAC</th>
@@ -134,7 +134,7 @@ export default function AdminReportsPage() {
                 </thead>
                 <tbody>
                   {report.days.map((d) => (
-                    <tr key={d.date} className="border-b border-slate-100">
+                    <tr key={d.date} className="border-b border-slate-800">
                       <td className="py-1.5 pr-2">{d.date}</td>
                       <td className="py-1.5 pr-2 text-right">{d.bookingsCount}</td>
                       <td className="py-1.5 pr-2 text-right">

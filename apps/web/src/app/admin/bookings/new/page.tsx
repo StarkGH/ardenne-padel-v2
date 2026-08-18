@@ -162,7 +162,7 @@ function AdminNewBookingForm() {
                   <button
                     key={r.id}
                     onClick={() => setClient(r)}
-                    className="min-h-11 rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-left text-sm font-medium hover:border-emerald-600"
+                    className="min-h-11 rounded-xl border-2 border-slate-800 bg-slate-900 px-4 py-3 text-left text-sm font-medium hover:border-accent-600"
                   >
                     {r.firstName} {r.lastName} — {r.email}
                   </button>
@@ -185,7 +185,7 @@ function AdminNewBookingForm() {
                   setCourtId(null);
                 }}
                 className={`min-h-11 rounded-xl border-2 px-4 py-3 text-base font-medium ${
-                  courtType === type ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+                  courtType === type ? "border-accent-600 bg-accent-600/15 text-accent-300" : "border-slate-800 bg-slate-900"
                 }`}
               >
                 {type === "SIMPLE" ? "Simple" : "Double"}
@@ -204,7 +204,7 @@ function AdminNewBookingForm() {
                 key={court.id}
                 onClick={() => setCourtId(court.id)}
                 className={`min-h-11 rounded-xl border-2 px-4 py-3 text-left text-base font-medium ${
-                  courtId === court.id ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+                  courtId === court.id ? "border-accent-600 bg-accent-600/15 text-accent-300" : "border-slate-800 bg-slate-900"
                 }`}
               >
                 {court.name}
@@ -225,7 +225,7 @@ function AdminNewBookingForm() {
                   key={iso}
                   onClick={() => setDateISO(iso)}
                   className={`min-h-11 shrink-0 rounded-xl border-2 px-3 py-2 text-sm font-medium capitalize ${
-                    dateISO === iso ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+                    dateISO === iso ? "border-accent-600 bg-accent-600/15 text-accent-300" : "border-slate-800 bg-slate-900"
                   }`}
                 >
                   {formatDayLabel(day)}
@@ -251,7 +251,7 @@ function AdminNewBookingForm() {
                     setDurationMinutes(null);
                   }}
                   className={`min-h-11 rounded-xl border-2 px-2 py-2 text-sm font-medium ${
-                    startTime === slot.startTime ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+                    startTime === slot.startTime ? "border-accent-600 bg-accent-600/15 text-accent-300" : "border-slate-800 bg-slate-900"
                   }`}
                 >
                   {slot.startTime}
@@ -271,7 +271,7 @@ function AdminNewBookingForm() {
                 key={d}
                 onClick={() => setDurationMinutes(d)}
                 className={`min-h-11 rounded-xl border-2 px-2 py-2 text-sm font-medium ${
-                  durationMinutes === d ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+                  durationMinutes === d ? "border-accent-600 bg-accent-600/15 text-accent-300" : "border-slate-800 bg-slate-900"
                 }`}
               >
                 {d} min
@@ -367,7 +367,7 @@ function ParticipantsStep({ bookingId }: { bookingId: string }) {
     <div className="flex flex-col gap-6">
       <Card className="flex flex-col gap-3">
         <h1 className="text-xl font-bold">Réservation créée</h1>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-slate-400">
           La réservation est en attente de paiement (CHECKOUT_PENDING) — le client peut la régler en ligne, ou un règlement peut
           être suivi manuellement.
         </p>

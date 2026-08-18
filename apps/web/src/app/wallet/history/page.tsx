@@ -58,7 +58,7 @@ export default function WalletHistoryPage() {
               <p className="text-sm font-medium">{TYPE_LABELS[tx.type] ?? tx.type}</p>
               <p className="text-xs text-slate-500">{formatDateTime(tx.createdAt)}</p>
             </div>
-            <p className={`font-semibold ${isHoldAudit ? "text-slate-400" : tx.amountCents >= 0 ? "text-emerald-700" : "text-slate-900"}`}>
+            <p className={`font-semibold ${isHoldAudit ? "text-slate-400" : tx.amountCents >= 0 ? "text-accent-600" : "text-white"}`}>
               {tx.amountCents >= 0 && !isHoldAudit ? "+" : ""}
               <PriceTag cents={tx.amountCents} />
             </p>

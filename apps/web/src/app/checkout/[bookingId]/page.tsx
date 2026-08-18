@@ -32,7 +32,7 @@ export default function CheckoutPage({ params }: { params: Promise<{ bookingId: 
   if (booking.status !== "CHECKOUT_PENDING") {
     return (
       <Card className="flex flex-col gap-3">
-        <p className="text-sm text-slate-600">Cette réservation n&apos;est plus en attente de paiement.</p>
+        <p className="text-sm text-slate-400">Cette réservation n&apos;est plus en attente de paiement.</p>
         <Button onClick={() => router.push(`/bookings/${bookingId}`)}>Voir la réservation</Button>
       </Card>
     );
@@ -118,7 +118,7 @@ function FullCheckout({ booking }: { booking: Booking }) {
     <div className="flex flex-col gap-6">
       <h1 className="text-xl font-bold">Paiement</h1>
       <Card className="flex flex-col gap-2">
-        <p className="text-sm capitalize text-slate-600">{formatDateTime(booking.startAt)}</p>
+        <p className="text-sm capitalize text-slate-400">{formatDateTime(booking.startAt)}</p>
         <p className="text-2xl font-bold">
           <PriceTag cents={booking.priceTotalCents} currency={booking.currency} />
         </p>
@@ -136,7 +136,7 @@ function FullCheckout({ booking }: { booking: Booking }) {
             type="checkbox"
             checked={useWallet}
             onChange={(e) => setUseWallet(e.target.checked)}
-            className="h-6 w-6 accent-emerald-600"
+            className="h-6 w-6 accent-accent-600"
           />
         </Card>
       )}
@@ -149,7 +149,7 @@ function FullCheckout({ booking }: { booking: Booking }) {
       )}
 
       {walletAppliedCents > 0 && (
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-slate-400">
           <PriceTag cents={walletAppliedCents} currency={booking.currency} /> prélevés sur votre wallet
           {remainingCents > 0 && (
             <>
@@ -296,7 +296,7 @@ function SplitCheckout({ booking }: { booking: Booking }) {
     <div className="flex flex-col gap-6">
       <h1 className="text-xl font-bold">Paiement partagé</h1>
       <Card className="flex flex-col gap-2">
-        <p className="text-sm capitalize text-slate-600">{formatDateTime(booking.startAt)}</p>
+        <p className="text-sm capitalize text-slate-400">{formatDateTime(booking.startAt)}</p>
         <p className="text-2xl font-bold">
           <PriceTag cents={booking.priceTotalCents} currency={booking.currency} />
         </p>
@@ -346,7 +346,7 @@ function SplitCheckout({ booking }: { booking: Booking }) {
             <Card className="flex flex-col gap-2">
               {preview.shares.map((share, i) => (
                 <div key={i} className="flex items-center justify-between text-sm">
-                  <span className="text-slate-600">
+                  <span className="text-slate-400">
                     {share.isOrganizer ? "Vous (à régler maintenant)" : `Participant ${i + 1}`}
                     {share.serviceFeeAmountCents > 0 && (
                       <span className="ml-1 text-xs text-slate-400">(dont <PriceTag cents={share.serviceFeeAmountCents} currency={preview.currency} /> de frais)</span>
@@ -371,7 +371,7 @@ function SplitCheckout({ booking }: { booking: Booking }) {
               <button
                 onClick={() => setGuaranteeType("WALLET_RESERVE")}
                 className={`min-h-11 rounded-xl border-2 px-4 py-3 text-left text-sm font-medium ${
-                  guaranteeType === "WALLET_RESERVE" ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+                  guaranteeType === "WALLET_RESERVE" ? "border-accent-600 bg-accent-600/15 text-accent-300" : "border-slate-800 bg-slate-900"
                 }`}
               >
                 Réserver sur mon solde wallet
@@ -379,7 +379,7 @@ function SplitCheckout({ booking }: { booking: Booking }) {
               <button
                 onClick={() => setGuaranteeType("CARD_OFF_SESSION")}
                 className={`min-h-11 rounded-xl border-2 px-4 py-3 text-left text-sm font-medium ${
-                  guaranteeType === "CARD_OFF_SESSION" ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+                  guaranteeType === "CARD_OFF_SESSION" ? "border-accent-600 bg-accent-600/15 text-accent-300" : "border-slate-800 bg-slate-900"
                 }`}
               >
                 Autoriser ma carte bancaire
@@ -394,10 +394,10 @@ function SplitCheckout({ booking }: { booking: Booking }) {
                 type="checkbox"
                 checked={consent}
                 onChange={(e) => setConsent(e.target.checked)}
-                className="mt-1 h-5 w-5 accent-emerald-600"
+                className="mt-1 h-5 w-5 accent-accent-600"
                 id="consent"
               />
-              <label htmlFor="consent" className="text-sm text-slate-700">
+              <label htmlFor="consent" className="text-sm text-slate-200">
                 J&apos;autorise Ardenne Padel à débiter ma carte bancaire pour couvrir les parts non payées par les autres participants avant
                 l&apos;échéance de la réservation.
               </label>

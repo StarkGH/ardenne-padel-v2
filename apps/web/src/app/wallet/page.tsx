@@ -36,13 +36,13 @@ export default function WalletPage() {
     <div className="flex flex-col gap-6">
       <h1 className="text-xl font-bold">Mon wallet</h1>
 
-      <Card className="flex flex-col gap-1 bg-emerald-700 text-white">
-        <span className="text-sm text-emerald-100">Solde disponible</span>
+      <Card className="flex flex-col gap-1 bg-primary-700 text-white">
+        <span className="text-sm text-accent-100">Solde disponible</span>
         <span className="text-3xl font-bold">
           <PriceTag cents={balance.availableCents} currency={balance.currency} />
         </span>
         {balance.reservedCents > 0 && (
-          <span className="text-xs text-emerald-100">
+          <span className="text-xs text-accent-100">
             dont <PriceTag cents={balance.reservedCents} currency={balance.currency} /> réservés (garanties en cours)
           </span>
         )}
@@ -51,20 +51,20 @@ export default function WalletPage() {
       <Card className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold text-slate-500">Composition</h2>
         <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-600">Crédits payés</span>
+          <span className="text-slate-400">Crédits payés</span>
           <span className="font-medium">
             <PriceTag cents={balance.byOrigin.PAID} currency={balance.currency} />
           </span>
         </div>
         <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-600">Crédits bonus</span>
+          <span className="text-slate-400">Crédits bonus</span>
           <span className="font-medium">
             <PriceTag cents={balance.byOrigin.BONUS} currency={balance.currency} />
           </span>
         </div>
         {balance.byOrigin.ADMIN_COMP > 0 && (
           <div className="flex items-center justify-between text-sm">
-            <span className="text-slate-600">Crédits offerts</span>
+            <span className="text-slate-400">Crédits offerts</span>
             <span className="font-medium">
               <PriceTag cents={balance.byOrigin.ADMIN_COMP} currency={balance.currency} />
             </span>

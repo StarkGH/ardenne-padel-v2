@@ -90,7 +90,7 @@ function PayInvitationForm({ params }: { params: Promise<{ token: string }> }) {
     return (
       <Card className="flex flex-col gap-3">
         <h1 className="text-xl font-bold">Part réglée !</h1>
-        <p className="text-sm text-slate-600">Merci, votre participation a bien été enregistrée.</p>
+        <p className="text-sm text-slate-400">Merci, votre participation a bien été enregistrée.</p>
       </Card>
     );
   }
@@ -117,7 +117,7 @@ function PayInvitationForm({ params }: { params: Promise<{ token: string }> }) {
           <button
             onClick={() => setFundingSource("WALLET")}
             className={`min-h-11 rounded-xl border-2 px-4 py-3 text-left text-sm font-medium ${
-              fundingSource === "WALLET" ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+              fundingSource === "WALLET" ? "border-accent-600 bg-accent-600/15 text-accent-300" : "border-slate-800 bg-slate-900"
             }`}
           >
             Mon solde wallet
@@ -125,7 +125,7 @@ function PayInvitationForm({ params }: { params: Promise<{ token: string }> }) {
           <button
             onClick={() => setFundingSource("EXTERNAL")}
             className={`min-h-11 rounded-xl border-2 px-4 py-3 text-left text-sm font-medium ${
-              fundingSource === "EXTERNAL" ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+              fundingSource === "EXTERNAL" ? "border-accent-600 bg-accent-600/15 text-accent-300" : "border-slate-800 bg-slate-900"
             }`}
           >
             Carte bancaire

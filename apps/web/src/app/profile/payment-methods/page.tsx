@@ -145,7 +145,7 @@ function PaymentMethodsScreen() {
       </div>
 
       {setupClientSecret ? (
-        <div className="flex flex-col gap-3 rounded-xl border border-slate-200 p-3">
+        <div className="flex flex-col gap-3 rounded-xl border border-slate-800 p-3">
           <h2 className="text-sm font-semibold text-slate-500">Carte bancaire</h2>
           <StripeCardField />
           <div className="flex gap-2">

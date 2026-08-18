@@ -53,9 +53,9 @@ function LoginForm() {
       <Button type="submit" disabled={submitting}>
         {submitting ? "Connexion..." : "Se connecter"}
       </Button>
-      <p className="text-center text-sm text-slate-600">
+      <p className="text-center text-sm text-slate-400">
         Pas encore de compte ?{" "}
-        <Link href="/register" className="font-medium text-emerald-700">
+        <Link href="/register" className="font-medium text-accent-600">
           S&apos;inscrire
         </Link>
       </p>

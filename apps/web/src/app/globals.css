@@ -1,26 +1,53 @@
 @import "tailwindcss";
 
+/* Le site ardenne-padel.be est en thème sombre permanent (pas de bascule
+   clair/sombre) : fond quasi noir, panneaux navy, texte blanc. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #050912;
+  --foreground: #f1f5f9;
 }
 
+/* Palette officielle Ardenne Padel (ardenne-padel.be) : bleu primaire,
+   orange secondaire, vert lime en accent. */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-body);
+  --font-heading: var(--font-heading);
   --font-mono: var(--font-geist-mono);
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-primary-50: #eaf3fb;
+  --color-primary-100: #cbe3f6;
+  --color-primary-200: #97c7ed;
+  --color-primary-300: #63aae3;
+  --color-primary-400: #3690d8;
+  --color-primary-500: #0d75c9;
+  --color-primary-600: #0052a3;
+  --color-primary-700: #003f7d;
+  --color-primary-800: #002c58;
+  --color-primary-900: #001b36;
+
+  --color-secondary-50: #fff3e6;
+  --color-secondary-100: #ffe0bf;
+  --color-secondary-300: #ffb666;
+  --color-secondary-600: #ff8c00;
+  --color-secondary-700: #cc7000;
+  --color-secondary-800: #995400;
+
+  --color-accent-50: #f2ffdc;
+  --color-accent-100: #e0ffb0;
+  --color-accent-300: #b3ea4d;
+  --color-accent-600: #7fd000;
+  --color-accent-700: #5f9c00;
+  --color-accent-800: #467300;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-body), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-heading), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }

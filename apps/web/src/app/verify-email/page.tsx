@@ -33,7 +33,7 @@ function VerifyEmailContent() {
     return (
       <div className="flex flex-col gap-3">
         <ErrorBanner message={error} />
-        <Link href="/login" className="text-sm font-medium text-emerald-700">
+        <Link href="/login" className="text-sm font-medium text-accent-600">
           Aller à la connexion
         </Link>
       </div>
@@ -43,8 +43,8 @@ function VerifyEmailContent() {
   return (
     <div className="flex flex-col gap-3">
       <h1 className="text-xl font-bold">Compte vérifié !</h1>
-      <p className="text-sm text-slate-600">Votre e-mail a été confirmé. Vous pouvez maintenant vous connecter.</p>
-      <Link href="/login" className="text-sm font-medium text-emerald-700">
+      <p className="text-sm text-slate-400">Votre e-mail a été confirmé. Vous pouvez maintenant vous connecter.</p>
+      <Link href="/login" className="text-sm font-medium text-accent-600">
         Se connecter
       </Link>
     </div>

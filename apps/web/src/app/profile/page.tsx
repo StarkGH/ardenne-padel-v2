@@ -102,7 +102,7 @@ function ProfileForm({ profile, onUpdated }: { profile: Profile; onUpdated: (p: 
         <TextInput type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" />
       </Field>
       <ErrorBanner message={error} />
-      {saved && <p className="text-sm text-emerald-700">Profil mis à jour.</p>}
+      {saved && <p className="text-sm text-accent-600">Profil mis à jour.</p>}
       <Button type="submit" variant="secondary" disabled={saving}>
         {saving ? "Enregistrement..." : "Enregistrer"}
       </Button>
@@ -152,7 +152,7 @@ function EmailChangeForm({ currentEmail }: { currentEmail: string }) {
       </Field>
       <ErrorBanner message={error} />
       {saved && (
-        <p className="text-sm text-emerald-700">
+        <p className="text-sm text-accent-600">
           Un e-mail de confirmation a été envoyé à la nouvelle adresse. Le changement prendra effet une fois le lien
           confirmé.
         </p>
@@ -210,7 +210,7 @@ function PasswordForm() {
         />
       </Field>
       <ErrorBanner message={error} />
-      {saved && <p className="text-sm text-emerald-700">Mot de passe modifié.</p>}
+      {saved && <p className="text-sm text-accent-600">Mot de passe modifié.</p>}
       <Button type="submit" variant="secondary" disabled={saving}>
         {saving ? "Modification..." : "Changer le mot de passe"}
       </Button>

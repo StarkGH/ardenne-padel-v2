@@ -88,14 +88,14 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
       </button>
 
       {booking.status === "CONFIRMED" && (
-        <Card className="bg-emerald-700 text-white">
+        <Card className="bg-primary-700 text-white">
           <p className="font-semibold">Réservation confirmée</p>
         </Card>
       )}
 
       <Card className="flex flex-col gap-2">
         <p className="text-lg font-semibold capitalize">{formatDateTime(booking.startAt)}</p>
-        <p className="text-sm text-slate-600">{booking.durationMinutes} minutes</p>
+        <p className="text-sm text-slate-400">{booking.durationMinutes} minutes</p>
         <p className="text-xl font-bold">
           <PriceTag cents={booking.priceTotalCents} currency={booking.currency} />
         </p>
@@ -106,7 +106,7 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
           <h2 className="text-sm font-semibold text-slate-500">Parts des participants</h2>
           {shares.map((share) => (
             <div key={share.id} className="flex items-center justify-between text-sm">
-              <span className="text-slate-600">{share.invitedEmail ?? (share.participantUserId ? "Vous" : "Participant")}</span>
+              <span className="text-slate-400">{share.invitedEmail ?? (share.participantUserId ? "Vous" : "Participant")}</span>
               <span className="flex items-center gap-2">
                 <span className="text-xs text-slate-400">{SHARE_STATUS_LABELS[share.status] ?? share.status}</span>
                 <span className="font-medium">
@@ -122,7 +122,7 @@ export default function BookingDetailPage({ params }: { params: Promise<{ id: st
         <Card className="flex flex-col gap-2">
           <h2 className="text-sm font-semibold text-slate-500">Code d&apos;accès</h2>
           {access.map((grant) => (
-            <p key={grant.id} className="font-mono text-2xl font-bold tracking-wider text-emerald-700">
+            <p key={grant.id} className="font-mono text-2xl font-bold tracking-wider text-accent-600">
               {grant.code}
             </p>
           ))}

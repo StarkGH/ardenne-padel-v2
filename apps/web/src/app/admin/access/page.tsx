@@ -42,7 +42,7 @@ export default function AdminAccessPage() {
         {grants.map((g) => (
           <Card key={g.id} className="flex items-center justify-between gap-3">
             <div>
-              <Link href={`/admin/bookings/${g.bookingId}`} className="text-sm font-medium text-emerald-700">
+              <Link href={`/admin/bookings/${g.bookingId}`} className="text-sm font-medium text-accent-600">
                 {g.booking.organizer.firstName} {g.booking.organizer.lastName}
               </Link>
               <p className="text-xs text-slate-500">

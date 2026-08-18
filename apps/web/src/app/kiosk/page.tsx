@@ -113,7 +113,7 @@ export default function KioskHomePage() {
                 setCourtId(null);
               }}
               className={`min-h-14 rounded-xl border-2 px-4 py-3 text-lg font-medium ${
-                courtType === type ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+                courtType === type ? "border-accent-600 bg-accent-600/15 text-accent-300" : "border-slate-800 bg-slate-900"
               }`}
             >
               {type === "SIMPLE" ? "Simple" : "Double"}
@@ -131,7 +131,7 @@ export default function KioskHomePage() {
                 key={court.id}
                 onClick={() => setCourtId(court.id)}
                 className={`min-h-14 rounded-xl border-2 px-4 py-3 text-left text-lg font-medium ${
-                  courtId === court.id ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+                  courtId === court.id ? "border-accent-600 bg-accent-600/15 text-accent-300" : "border-slate-800 bg-slate-900"
                 }`}
               >
                 {court.name}
@@ -152,7 +152,7 @@ export default function KioskHomePage() {
                   key={iso}
                   onClick={() => setDateISO(iso)}
                   className={`min-h-14 shrink-0 rounded-xl border-2 px-3 py-2 text-sm font-medium capitalize ${
-                    dateISO === iso ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+                    dateISO === iso ? "border-accent-600 bg-accent-600/15 text-accent-300" : "border-slate-800 bg-slate-900"
                   }`}
                 >
                   {formatDayLabel(day)}
@@ -180,7 +180,7 @@ export default function KioskHomePage() {
                     setDurationMinutes(null);
                   }}
                   className={`min-h-14 rounded-xl border-2 px-2 py-2 text-sm font-medium ${
-                    startTime === slot.startTime ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+                    startTime === slot.startTime ? "border-accent-600 bg-accent-600/15 text-accent-300" : "border-slate-800 bg-slate-900"
                   }`}
                 >
                   {slot.startTime}
@@ -200,7 +200,7 @@ export default function KioskHomePage() {
                 key={d}
                 onClick={() => setDurationMinutes(d)}
                 className={`min-h-14 rounded-xl border-2 px-2 py-2 text-sm font-medium ${
-                  durationMinutes === d ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+                  durationMinutes === d ? "border-accent-600 bg-accent-600/15 text-accent-300" : "border-slate-800 bg-slate-900"
                 }`}
               >
                 {d} min

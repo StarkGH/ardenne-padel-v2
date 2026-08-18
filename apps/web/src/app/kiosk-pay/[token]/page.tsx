@@ -60,7 +60,7 @@ export default function KioskPayPage({ params }: { params: Promise<{ token: stri
       <h1 className="text-xl font-bold">Continuer ma réservation</h1>
       <Card className="flex flex-col gap-2">
         {court && <p className="text-lg font-semibold">{court.name}</p>}
-        <p className="text-sm capitalize text-slate-600">{formatDateTime(preview.startAt)}</p>
+        <p className="text-sm capitalize text-slate-400">{formatDateTime(preview.startAt)}</p>
         <p className="text-sm text-slate-500">{preview.durationMinutes} minutes</p>
       </Card>
 

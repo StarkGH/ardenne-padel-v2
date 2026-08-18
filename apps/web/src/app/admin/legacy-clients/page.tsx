@@ -47,7 +47,7 @@ export default function AdminLegacyClientsPage() {
             key={opt}
             onClick={() => setStatus(opt)}
             className={`min-h-11 rounded-xl border-2 px-3 py-2 text-sm font-medium ${
-              status === opt ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+              status === opt ? "border-accent-600 bg-accent-600/15 text-accent-300" : "border-slate-800 bg-slate-900"
             }`}
           >
             {STATUS_LABELS[opt]}
@@ -161,7 +161,7 @@ function LegacyClientCard({ entry, onChanged }: { entry: LegacyClientMigrationEn
           </p>
         </div>
         {entry.linkedUser && (
-          <p className="text-right text-xs text-emerald-700">
+          <p className="text-right text-xs text-accent-600">
             Lié à {entry.linkedUser.firstName} {entry.linkedUser.lastName}
             <br />({entry.linkedUser.email})
           </p>
@@ -169,7 +169,7 @@ function LegacyClientCard({ entry, onChanged }: { entry: LegacyClientMigrationEn
       </div>
 
       {entry.mergeNote && (
-        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{entry.mergeNote}</p>
+        <p className="rounded-lg bg-amber-500/15 px-3 py-2 text-xs text-amber-300">{entry.mergeNote}</p>
       )}
 
       <ErrorBanner message={error} />
@@ -193,7 +193,7 @@ function LegacyClientCard({ entry, onChanged }: { entry: LegacyClientMigrationEn
           )}
 
           {picking && (
-            <div className="flex w-full flex-col gap-2 border-t border-slate-100 pt-2">
+            <div className="flex w-full flex-col gap-2 border-t border-slate-800 pt-2">
               <div className="flex gap-2">
                 <TextInput
                   placeholder="Nom, prénom ou e-mail du compte V2"
@@ -213,7 +213,7 @@ function LegacyClientCard({ entry, onChanged }: { entry: LegacyClientMigrationEn
                       key={r.id}
                       onClick={() => handleLink(r.id)}
                       disabled={acting}
-                      className="min-h-11 rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-left text-sm font-medium hover:border-emerald-600"
+                      className="min-h-11 rounded-xl border-2 border-slate-800 bg-slate-900 px-4 py-3 text-left text-sm font-medium hover:border-accent-600"
                     >
                       {r.firstName} {r.lastName} — {r.email}
                     </button>
@@ -227,7 +227,7 @@ function LegacyClientCard({ entry, onChanged }: { entry: LegacyClientMigrationEn
           )}
 
           {disabling && (
-            <div className="flex w-full flex-col gap-2 border-t border-slate-100 pt-2">
+            <div className="flex w-full flex-col gap-2 border-t border-slate-800 pt-2">
               <Field label="Motif (optionnel)">
                 <TextInput value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex. personnes différentes, confirmé par téléphone" />
               </Field>

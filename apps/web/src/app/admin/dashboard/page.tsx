@@ -48,7 +48,7 @@ export default function AdminDashboardPage() {
             <Card
               key={a.code}
               className={`flex items-center justify-between gap-3 ${
-                a.severity === "critical" ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50"
+                a.severity === "critical" ? "border-red-700 bg-red-500/15" : "border-amber-700 bg-amber-500/15"
               }`}
             >
               <span className="text-sm">{a.message}</span>
@@ -64,7 +64,7 @@ export default function AdminDashboardPage() {
         <Card className="flex flex-col gap-2">
           {(Object.keys(INDICATOR_LABELS) as (keyof HealthIndicators)[]).map((key) => (
             <div key={key} className="flex items-center justify-between text-sm">
-              <span className="text-slate-600">{INDICATOR_LABELS[key]}</span>
+              <span className="text-slate-400">{INDICATOR_LABELS[key]}</span>
               <span className="font-medium">
                 {key === "lastLegacySyncAt"
                   ? indicators.lastLegacySyncAt

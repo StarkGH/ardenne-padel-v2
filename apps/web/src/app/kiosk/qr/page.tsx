@@ -109,8 +109,8 @@ export default function KioskQrPage() {
   if (status?.bookingStatus === "CONFIRMED") {
     return (
       <Card className="flex flex-col items-center gap-4 py-10 text-center">
-        <h1 className="text-2xl font-bold text-emerald-700">Réservation confirmée !</h1>
-        <p className="text-sm text-slate-600">Le paiement a été effectué sur votre téléphone. Bon match !</p>
+        <h1 className="text-2xl font-bold text-accent-600">Réservation confirmée !</h1>
+        <p className="text-sm text-slate-400">Le paiement a été effectué sur votre téléphone. Bon match !</p>
         <Button
           onClick={() => {
             clearKioskDraft();
@@ -127,7 +127,7 @@ export default function KioskQrPage() {
     return (
       <Card className="flex flex-col items-center gap-4 py-10 text-center">
         <h1 className="text-xl font-bold text-red-700">Paiement non abouti</h1>
-        <p className="text-sm text-slate-600">La réservation n&apos;a pas pu être confirmée depuis le téléphone.</p>
+        <p className="text-sm text-slate-400">La réservation n&apos;a pas pu être confirmée depuis le téléphone.</p>
         <Button
           onClick={() => {
             clearKioskDraft();
@@ -143,10 +143,10 @@ export default function KioskQrPage() {
   return (
     <Card className="flex flex-col items-center gap-4 py-6 text-center">
       <h1 className="text-xl font-bold">Continuez sur votre téléphone</h1>
-      <p className="text-sm text-slate-600">Scannez ce code avec l&apos;appareil photo de votre téléphone.</p>
+      <p className="text-sm text-slate-400">Scannez ce code avec l&apos;appareil photo de votre téléphone.</p>
       {/* eslint-disable-next-line @next/next/no-img-element -- data URL générée côté client, pas d'optimisation Next.js pertinente */}
       <img src={qrDataUrl} alt="QR code de reprise sur smartphone" width={240} height={240} />
-      <p className="text-sm font-medium text-slate-700">
+      <p className="text-sm font-medium text-slate-200">
         {status?.bookingId ? "Réservation créée, en attente de paiement sur votre téléphone..." : "En attente de connexion sur votre téléphone..."}
       </p>
       <Spinner />

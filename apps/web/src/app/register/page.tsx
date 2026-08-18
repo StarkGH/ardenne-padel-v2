@@ -33,11 +33,11 @@ export default function RegisterPage() {
     return (
       <Card className="flex flex-col gap-3">
         <h1 className="text-xl font-bold">Vérifiez votre e-mail</h1>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-slate-400">
           Un lien de vérification a été envoyé à <strong>{email}</strong>. Cliquez dessus pour activer votre compte, puis
           connectez-vous.
         </p>
-        <Link href="/login" className="text-sm font-medium text-emerald-700">
+        <Link href="/login" className="text-sm font-medium text-accent-600">
           Aller à la connexion
         </Link>
       </Card>
@@ -71,9 +71,9 @@ export default function RegisterPage() {
       <Button type="submit" disabled={submitting}>
         {submitting ? "Création..." : "Créer mon compte"}
       </Button>
-      <p className="text-center text-sm text-slate-600">
+      <p className="text-center text-sm text-slate-400">
         Déjà inscrit ?{" "}
-        <Link href="/login" className="font-medium text-emerald-700">
+        <Link href="/login" className="font-medium text-accent-600">
           Se connecter
         </Link>
       </p>

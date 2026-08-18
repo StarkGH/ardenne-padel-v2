@@ -113,7 +113,7 @@ export default function AdminClientWalletPage({ params }: { params: Promise<{ us
       <h1 className="text-xl font-bold">
         Wallet de {file.profile.firstName} {file.profile.lastName}
       </h1>
-      <Link href={`/admin/clients/${userId}`} className="text-sm text-emerald-700">
+      <Link href={`/admin/clients/${userId}`} className="text-sm text-accent-600">
         ← Fiche client
       </Link>
 
@@ -123,13 +123,13 @@ export default function AdminClientWalletPage({ params }: { params: Promise<{ us
 
       {file.wallet && (
         <>
-          <Card className="flex flex-col gap-1 bg-emerald-700 text-white">
-            <span className="text-sm text-emerald-100">Solde disponible</span>
+          <Card className="flex flex-col gap-1 bg-primary-700 text-white">
+            <span className="text-sm text-accent-100">Solde disponible</span>
             <span className="text-3xl font-bold">
               <PriceTag cents={file.wallet.balanceAvailableCents} />
             </span>
             {file.wallet.balanceReservedCents > 0 && (
-              <span className="text-xs text-emerald-100">
+              <span className="text-xs text-accent-100">
                 dont <PriceTag cents={file.wallet.balanceReservedCents} /> réservés
               </span>
             )}
@@ -178,7 +178,7 @@ export default function AdminClientWalletPage({ params }: { params: Promise<{ us
                 </div>
                 {h.status === "ACTIVE" && (
                   <div className="flex gap-2">
-                    <button onClick={() => handleRelease(h.id)} disabled={acting} className="text-xs text-slate-600">
+                    <button onClick={() => handleRelease(h.id)} disabled={acting} className="text-xs text-slate-400">
                       Libérer
                     </button>
                     <button onClick={() => handleCapture(h.id)} disabled={acting} className="text-xs text-red-600">
@@ -200,7 +200,7 @@ export default function AdminClientWalletPage({ params }: { params: Promise<{ us
                   <p className="text-xs text-slate-500">{formatDateTime(t.createdAt)}</p>
                   {t.reference && <p className="text-xs text-slate-400">{t.reference}</p>}
                 </div>
-                <span className={`font-semibold ${t.amountCents >= 0 ? "text-emerald-700" : "text-slate-900"}`}>
+                <span className={`font-semibold ${t.amountCents >= 0 ? "text-accent-600" : "text-white"}`}>
                   {t.amountCents >= 0 ? "+" : ""}
                   <PriceTag cents={t.amountCents} />
                 </span>

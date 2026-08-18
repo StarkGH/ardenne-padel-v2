@@ -97,7 +97,7 @@ function CreditPacksPurchaseForm({
     return (
       <Card className="flex flex-col gap-3">
         <h1 className="text-xl font-bold">Achat confirmé !</h1>
-        <p className="text-sm text-slate-600">Vos crédits ont été ajoutés à votre wallet.</p>
+        <p className="text-sm text-slate-400">Vos crédits ont été ajoutés à votre wallet.</p>
         <Button onClick={() => router.push(confirmedHref)}>{confirmedLabel}</Button>
       </Card>
     );
@@ -118,10 +118,10 @@ function CreditPacksPurchaseForm({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="font-semibold">{pack.name}</p>
-                <p className="text-sm text-slate-600">
+                <p className="text-sm text-slate-400">
                   <PriceTag cents={pack.paidCreditsCents} /> de crédits
                   {pack.bonusCreditsCents > 0 && (
-                    <span className="text-emerald-700"> + <PriceTag cents={pack.bonusCreditsCents} /> offerts</span>
+                    <span className="text-accent-600"> + <PriceTag cents={pack.bonusCreditsCents} /> offerts</span>
                   )}
                 </p>
               </div>
@@ -132,7 +132,7 @@ function CreditPacksPurchaseForm({
               )}
             </div>
             {selectedPackId === pack.id && (
-              <div className="flex flex-col gap-3 border-t border-slate-100 pt-3">
+              <div className="flex flex-col gap-3 border-t border-slate-800 pt-3">
                 <StripeCardField />
                 <Button onClick={() => handlePurchase(pack.id)} disabled={purchasingId === pack.id}>
                   {purchasingId === pack.id ? "..." : <>Payer <PriceTag cents={pack.purchaseAmountCents} /></>}

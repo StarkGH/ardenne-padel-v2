@@ -118,7 +118,7 @@ export default function AdminClientFilePage({ params }: { params: Promise<{ user
                 onClick={() => handleRoleChange(r)}
                 disabled={savingRole || r === profile.role}
                 className={`min-h-9 rounded-lg border px-3 py-1 text-xs font-medium disabled:opacity-40 ${
-                  r === profile.role ? "border-emerald-600 bg-emerald-50 text-emerald-800" : "border-slate-200 bg-white"
+                  r === profile.role ? "border-accent-600 bg-accent-600/15 text-accent-300" : "border-slate-800 bg-slate-900"
                 }`}
               >
                 {r}

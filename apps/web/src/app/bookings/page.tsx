@@ -48,7 +48,7 @@ export default function BookingsPage() {
           <Link key={booking.id} href={`/bookings/${booking.id}`}>
             <Card className="flex items-center justify-between">
               <div>
-                <p className="text-sm capitalize text-slate-600">{formatDateTime(booking.startAt)}</p>
+                <p className="text-sm capitalize text-slate-400">{formatDateTime(booking.startAt)}</p>
                 <p className="text-xs text-slate-500">{STATUS_LABELS[booking.status] ?? booking.status}</p>
               </div>
               <p className="font-semibold">

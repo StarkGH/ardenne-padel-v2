@@ -19,7 +19,7 @@ const RUN_STATUS_LABELS: Record<LegacySyncRunEntry["status"], string> = {
 
 const RUN_STATUS_COLORS: Record<LegacySyncRunEntry["status"], string> = {
   RUNNING: "text-slate-500",
-  SUCCESS: "text-emerald-700",
+  SUCCESS: "text-accent-600",
   PARTIAL: "text-amber-700",
   FAILED: "text-red-700",
 };
@@ -80,7 +80,7 @@ export default function AdminSyncPage() {
         {issues.map((b) => (
           <Card key={b.id} className="flex items-center justify-between gap-3">
             <div>
-              <Link href={`/admin/bookings/${b.id}`} className="text-sm font-medium text-emerald-700">
+              <Link href={`/admin/bookings/${b.id}`} className="text-sm font-medium text-accent-600">
                 {b.organizer ? `${b.organizer.firstName} ${b.organizer.lastName}` : "—"}
               </Link>
               <p className="text-xs capitalize text-slate-500">{formatDateTime(b.startAt)}</p>

@@ -113,7 +113,7 @@ export default function AdminTariffsPage() {
             <TextInput value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field label="Terrain (vide = tous)">
-            <select value={courtId} onChange={(e) => setCourtId(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2">
+            <select value={courtId} onChange={(e) => setCourtId(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-600 bg-slate-950 px-3 py-2 text-white">
               <option value="">Tous les terrains</option>
               {courts.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -123,7 +123,7 @@ export default function AdminTariffsPage() {
             </select>
           </Field>
           <Field label="Type de terrain (vide = tous)">
-            <select value={courtType} onChange={(e) => setCourtType(e.target.value as CourtType | "")} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2">
+            <select value={courtType} onChange={(e) => setCourtType(e.target.value as CourtType | "")} className="min-h-11 w-full rounded-xl border border-slate-600 bg-slate-950 px-3 py-2 text-white [color-scheme:dark]">
               <option value="">Tous</option>
               <option value="SIMPLE">Simple</option>
               <option value="DOUBLE">Double</option>
@@ -135,7 +135,7 @@ export default function AdminTariffsPage() {
                 <button
                   key={i}
                   onClick={() => setDays((cur) => (cur.includes(i) ? cur.filter((d) => d !== i) : [...cur, i]))}
-                  className={`min-h-9 rounded-lg border px-2 py-1 text-xs ${days.includes(i) ? "border-emerald-600 bg-emerald-50" : "border-slate-200"}`}
+                  className={`min-h-9 rounded-lg border px-2 py-1 text-xs ${days.includes(i) ? "border-accent-600 bg-accent-600/15" : "border-slate-800"}`}
                 >
                   {label}
                 </button>

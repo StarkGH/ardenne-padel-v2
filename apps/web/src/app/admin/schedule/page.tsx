@@ -115,7 +115,7 @@ export default function AdminSchedulePage() {
         <Card className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-3">
             <Field label="Terrain (vide = tous)">
-              <select value={courtId} onChange={(e) => setCourtId(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2">
+              <select value={courtId} onChange={(e) => setCourtId(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-600 bg-slate-950 px-3 py-2 text-white">
                 <option value="">Tous</option>
                 {courts.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -125,7 +125,7 @@ export default function AdminSchedulePage() {
               </select>
             </Field>
             <Field label="Jour">
-              <select value={dayOfWeek} onChange={(e) => setDayOfWeek(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2">
+              <select value={dayOfWeek} onChange={(e) => setDayOfWeek(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-600 bg-slate-950 px-3 py-2 text-white [color-scheme:dark]">
                 {DAY_LABELS.map((label, i) => (
                   <option key={i} value={i}>
                     {label}
@@ -167,7 +167,7 @@ export default function AdminSchedulePage() {
         {closures.length === 0 && <p className="text-xs text-slate-400">Aucune fermeture programmée.</p>}
         <Card className="flex flex-col gap-3">
           <Field label="Terrain">
-            <select value={closureCourtId} onChange={(e) => setClosureCourtId(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2">
+            <select value={closureCourtId} onChange={(e) => setClosureCourtId(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-600 bg-slate-950 px-3 py-2 text-white [color-scheme:dark]">
               <option value="">Choisir...</option>
               {courts.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -178,14 +178,14 @@ export default function AdminSchedulePage() {
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Début">
-              <input type="datetime-local" value={closureStart} onChange={(e) => setClosureStart(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2" />
+              <input type="datetime-local" value={closureStart} onChange={(e) => setClosureStart(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-600 bg-slate-950 px-3 py-2 text-white [color-scheme:dark]" />
             </Field>
             <Field label="Fin">
-              <input type="datetime-local" value={closureEnd} onChange={(e) => setClosureEnd(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2" />
+              <input type="datetime-local" value={closureEnd} onChange={(e) => setClosureEnd(e.target.value)} className="min-h-11 w-full rounded-xl border border-slate-600 bg-slate-950 px-3 py-2 text-white [color-scheme:dark]" />
             </Field>
           </div>
           <Field label="Type">
-            <select value={closureType} onChange={(e) => setClosureType(e.target.value as ClosureType)} className="min-h-11 w-full rounded-xl border border-slate-300 px-3 py-2">
+            <select value={closureType} onChange={(e) => setClosureType(e.target.value as ClosureType)} className="min-h-11 w-full rounded-xl border border-slate-600 bg-slate-950 px-3 py-2 text-white [color-scheme:dark]">
               <option value="MAINTENANCE">Maintenance</option>
               <option value="EVENT">Événement</option>
               <option value="ADMIN_BLOCK">Blocage administratif</option>

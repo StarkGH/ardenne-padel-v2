@@ -97,7 +97,7 @@ export default function AdminPaymentsPage() {
               </button>
             )}
             {refundingId === p.id && (
-              <div className="flex flex-col gap-2 border-t border-slate-100 pt-2">
+              <div className="flex flex-col gap-2 border-t border-slate-800 pt-2">
                 <Field label="Montant (€)">
                   <TextInput type="number" value={refundAmount} onChange={(e) => setRefundAmount(e.target.value)} />
                 </Field>

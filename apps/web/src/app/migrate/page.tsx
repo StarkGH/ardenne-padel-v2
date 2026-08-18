@@ -60,7 +60,7 @@ function MigrateContent() {
     return (
       <div className="flex flex-col gap-3">
         <ErrorBanner message={error} />
-        <Link href="/login" className="text-sm font-medium text-emerald-700">
+        <Link href="/login" className="text-sm font-medium text-accent-600">
           Aller à la connexion
         </Link>
       </div>
@@ -71,10 +71,10 @@ function MigrateContent() {
     return (
       <div className="flex flex-col gap-3">
         <h1 className="text-xl font-bold">Compte créé !</h1>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-slate-400">
           Votre compte Ardenne Padel est prêt. Vos anciennes réservations et informations client sont conservées.
         </p>
-        <Link href="/login" className="text-sm font-medium text-emerald-700">
+        <Link href="/login" className="text-sm font-medium text-accent-600">
           Se connecter
         </Link>
       </div>
@@ -84,7 +84,7 @@ function MigrateContent() {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <h1 className="text-xl font-bold">Créer votre mot de passe</h1>
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-slate-400">
         Bienvenue {identity!.firstName} {identity!.lastName}. Choisissez un mot de passe pour activer votre compte
         Ardenne Padel ({identity!.email}) — vos anciennes réservations restent associées à ce compte.
       </p>

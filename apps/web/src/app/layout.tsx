@@ -1,11 +1,19 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Poppins, Inter, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { SessionProvider } from "@/lib/session-context";
 import { NavBar } from "@/components/nav-bar";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Polices officielles Ardenne Padel (ardenne-padel.be) : Poppins pour les
+// titres, Inter pour le texte courant.
+const poppins = Poppins({
+  variable: "--font-heading",
+  weight: ["500", "600", "700"],
+  subsets: ["latin"],
+});
+
+const inter = Inter({
+  variable: "--font-body",
   subsets: ["latin"],
 });
 
@@ -30,13 +38,13 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  themeColor: "#047857",
+  themeColor: "#050912",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="fr" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="flex min-h-full flex-col bg-slate-50 text-slate-900">
+    <html lang="fr" className={`${poppins.variable} ${inter.variable} ${geistMono.variable} h-full antialiased`}>
+      <body className="flex min-h-full flex-col bg-slate-950 text-slate-100">
         <SessionProvider>
           <NavBar />
           <main className="mx-auto w-full max-w-lg flex-1 px-4 py-6">{children}</main>
