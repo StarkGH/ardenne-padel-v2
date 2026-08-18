@@ -58,7 +58,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    // Évade le `max-w-lg mx-auto` du layout racine (pensé pour les écrans
+    // client mobile-first, CDC §53) : l'admin a besoin de toute la largeur
+    // disponible sur desktop (tableaux, grille planning) tout en restant
+    // sans effet sur mobile (le viewport est déjà plus étroit que max-w-lg).
+    <div className="relative left-1/2 right-1/2 -mx-[50vw] flex w-screen max-w-none flex-col gap-4 px-4 md:px-8">
       <nav className="flex flex-col gap-2 border-b border-slate-200 pb-3">
         <div className="flex items-center justify-between text-xs text-slate-400">
           <span>

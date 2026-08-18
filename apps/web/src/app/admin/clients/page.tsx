@@ -30,13 +30,15 @@ export default function AdminClientsPage() {
     <div className="flex flex-col gap-6">
       <h1 className="text-xl font-bold">Clients</h1>
       <div className="flex gap-2">
-        <TextInput
-          placeholder="Nom, prénom ou e-mail"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-        />
-        <Button className="w-auto shrink-0" onClick={handleSearch} disabled={searching}>
+        <div className="min-w-0 flex-1">
+          <TextInput
+            placeholder="Nom, prénom ou e-mail"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+          />
+        </div>
+        <Button className="!w-auto shrink-0" onClick={handleSearch} disabled={searching}>
           {searching ? "..." : "Chercher"}
         </Button>
       </div>

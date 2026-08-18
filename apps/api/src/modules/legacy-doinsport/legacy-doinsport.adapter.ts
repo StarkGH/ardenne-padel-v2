@@ -128,36 +128,28 @@ export class LegacyDoinsportAdapter implements LegacyBookingProvider {
 
   async listBookings(range: DateRange): Promise<LegacyBookingSummaryDto[]> {
     return this.withLegacyErrorMapping(async () => {
-      const perPage = 200;
-      let page = 1;
-      const all: Record<string, unknown>[] = [];
+      // L'endpoint `/clubs/bookings/listing` ne se fie pas qu'à
+      // `startAt[after]`/`startAt[before]` : sans `filter[status]`, il ne
+      // renvoie que les réservations à venir, quelle que soit la fenêtre de
+      // dates demandée (confirmé en le testant en direct : fenêtre passée
+      // pure → 0 résultat). Il faut donc deux appels distincts, un par sens
+      // temporel, comme le fait l'outil `padel-service` (implémentation de
+      // référence) — jamais un seul appel "et on verra bien".
+      const [past, future] = await Promise.all([
+        this.fetchBookingsPage(range, "before", "desc"),
+        this.fetchBookingsPage(range, "after", "asc"),
+      ]);
 
-      // Pagination par taille de page — voir le commentaire équivalent dans
-      // `listClients()` : ne pas se fier à un `totalItems` absent ou peu
-      // fiable.
-      for (let guard = 0; guard < 200; guard++) {
-        const res = await this.http.call(`/clubs/bookings/listing`, {
-          "club.id": this.http.clubId,
-          itemsPerPage: perPage,
-          page,
-          canceled: "true",
-          confirmed: "true",
-          getTotalItems: "true",
-          "order[booking.startAt]": "asc",
-          "startAt[after]": range.fromISO,
-          "startAt[before]": range.toISO,
-        });
-        const batch = extractCollection(res);
-        all.push(...batch);
-        if (batch.length < perPage) break;
-        page += 1;
-      }
+      // Dédoublonnage par id : les deux fenêtres peuvent se chevaucher
+      // légèrement autour de "maintenant" selon le moment exact de l'appel.
+      const byId = new Map<string, Record<string, unknown>>();
+      for (const b of [...past, ...future]) byId.set(str(b.id), b);
 
       // CDC §13.3 : le filtre temporel du listing est peu fiable, on le
       // réapplique donc localement (ne jamais faire confiance à l'API seule).
       const fromMs = Date.parse(range.fromISO);
       const toMs = Date.parse(range.toISO);
-      return all
+      return [...byId.values()]
         .map((b) => ({
           id: str(b.id),
           startAt: str(b.startAt),
@@ -169,6 +161,39 @@ export class LegacyDoinsportAdapter implements LegacyBookingProvider {
           return Number.isFinite(startMs) && startMs >= fromMs && startMs <= toMs;
         });
     });
+  }
+
+  private async fetchBookingsPage(
+    range: DateRange,
+    statusFilter: "before" | "after",
+    sortOrder: "asc" | "desc",
+  ): Promise<Record<string, unknown>[]> {
+    const perPage = 200;
+    let page = 1;
+    const all: Record<string, unknown>[] = [];
+
+    // Pagination par taille de page — voir le commentaire équivalent dans
+    // `listClients()` : ne pas se fier à un `totalItems` absent ou peu
+    // fiable.
+    for (let guard = 0; guard < 200; guard++) {
+      const res = await this.http.call(`/clubs/bookings/listing`, {
+        "club.id": this.http.clubId,
+        itemsPerPage: perPage,
+        page,
+        canceled: "true",
+        confirmed: "true",
+        getTotalItems: "true",
+        "filter[status]": statusFilter,
+        "order[booking.startAt]": sortOrder,
+        "startAt[after]": range.fromISO,
+        "startAt[before]": range.toISO,
+      });
+      const batch = extractCollection(res);
+      all.push(...batch);
+      if (batch.length < perPage) break;
+      page += 1;
+    }
+    return all;
   }
 
   async getBooking(id: string): Promise<LegacyBookingDto> {

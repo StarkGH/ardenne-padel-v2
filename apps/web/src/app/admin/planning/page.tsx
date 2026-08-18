@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { DISPLAY_TIMEZONE } from "@/lib/datetime";
 import { Button, Card, ErrorBanner, Spinner } from "@/components/ui";
-import type { AdminBooking, Court } from "@/lib/types";
+import type { AdminBooking, Court, LegacyOccupation } from "@/lib/types";
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Brouillon",
@@ -60,6 +60,7 @@ export default function AdminPlanningPage() {
   const [dateISO, setDateISO] = useState(() => DateTime.now().setZone(DISPLAY_TIMEZONE).toISODate()!);
   const [courts, setCourts] = useState<Court[]>([]);
   const [bookings, setBookings] = useState<AdminBooking[] | null>(null);
+  const [legacyOccupations, setLegacyOccupations] = useState<LegacyOccupation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -70,13 +71,19 @@ export default function AdminPlanningPage() {
     const from = DateTime.fromISO(dateISO, { zone: DISPLAY_TIMEZONE }).startOf("day").toUTC().toISO();
     const to = DateTime.fromISO(dateISO, { zone: DISPLAY_TIMEZONE }).endOf("day").toUTC().toISO();
     setBookings(null);
+    setLegacyOccupations(null);
     api
       .get<AdminBooking[]>(`/admin/bookings?from=${encodeURIComponent(from!)}&to=${encodeURIComponent(to!)}`)
       .then(setBookings)
       .catch((err) => setError(err instanceof ApiError ? err.message : "Impossible de charger le planning."));
+    api
+      .get<LegacyOccupation[]>(`/admin/legacy-bookings?from=${encodeURIComponent(from!)}&to=${encodeURIComponent(to!)}`)
+      .then(setLegacyOccupations)
+      .catch(() => setLegacyOccupations([])); // dégradé silencieusement — pas bloquant pour afficher le reste du planning
   }, [dateISO]);
 
   const activeBookings = useMemo(() => (bookings ?? []).filter((b) => b.status !== "CANCELED"), [bookings]);
+  const legacyBlocks = useMemo(() => legacyOccupations ?? [], [legacyOccupations]);
 
   const { startMin, endMin, slotCount } = useMemo(() => {
     let start = DEFAULT_START_MIN;
@@ -85,8 +92,12 @@ export default function AdminPlanningPage() {
       start = Math.min(start, Math.floor(minutesOfDay(b.startAt) / 60) * 60);
       end = Math.max(end, Math.ceil(minutesOfDay(b.endAt) / 60) * 60);
     }
+    for (const l of legacyBlocks) {
+      start = Math.min(start, Math.floor(minutesOfDay(l.startAt) / 60) * 60);
+      end = Math.max(end, Math.ceil(minutesOfDay(l.endAt) / 60) * 60);
+    }
     return { startMin: start, endMin: end, slotCount: (end - start) / SLOT_MINUTES };
-  }, [activeBookings]);
+  }, [activeBookings, legacyBlocks]);
 
   function goToNewBooking(courtId: string, slotStartMin: number) {
     const params = new URLSearchParams({ courtId, date: dateISO, time: minutesToLabel(slotStartMin) });
@@ -103,12 +114,33 @@ export default function AdminPlanningPage() {
           </Button>
         </Link>
       </div>
-      <input
-        type="date"
-        value={dateISO}
-        onChange={(e) => setDateISO(e.target.value)}
-        className="min-h-11 w-fit rounded-xl border border-slate-300 px-3 py-2 text-base"
-      />
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setDateISO(DateTime.fromISO(dateISO).minus({ days: 1 }).toISODate()!)}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-300 text-lg text-slate-600 hover:bg-slate-50"
+          aria-label="Jour précédent"
+        >
+          ←
+        </button>
+        <input
+          type="date"
+          value={dateISO}
+          onChange={(e) => setDateISO(e.target.value)}
+          className="min-h-11 w-fit rounded-xl border border-slate-300 px-3 py-2 text-base"
+        />
+        <button
+          type="button"
+          onClick={() => setDateISO(DateTime.fromISO(dateISO).plus({ days: 1 }).toISODate()!)}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-300 text-lg text-slate-600 hover:bg-slate-50"
+          aria-label="Jour suivant"
+        >
+          →
+        </button>
+        <span className="text-sm font-medium capitalize text-slate-600">
+          {DateTime.fromISO(dateISO).setLocale("fr").toFormat("cccc d MMMM")}
+        </span>
+      </div>
 
       <ErrorBanner message={error} />
       {!bookings && !error && <Spinner />}
@@ -158,6 +190,16 @@ export default function AdminPlanningPage() {
                 for (let s = startSlot; s < endSlot; s++) occupied.add(s);
                 return { booking: b, startSlot, endSlot };
               });
+              const courtLegacyBlocks = legacyBlocks
+                .filter((l) => l.courtId === court.id)
+                .map((l) => {
+                  const lStart = Math.max(minutesOfDay(l.startAt), startMin);
+                  const lEnd = Math.min(minutesOfDay(l.endAt), endMin);
+                  const startSlot = Math.floor((lStart - startMin) / SLOT_MINUTES);
+                  const endSlot = Math.ceil((lEnd - startMin) / SLOT_MINUTES);
+                  for (let s = startSlot; s < endSlot; s++) occupied.add(s);
+                  return { occupation: l, startSlot, endSlot };
+                });
 
               return (
                 <div key={court.id} style={{ display: "contents" }}>
@@ -173,6 +215,17 @@ export default function AdminPlanningPage() {
                       </p>
                       <p className="truncate text-slate-500">{STATUS_LABELS[booking.status] ?? booking.status}</p>
                     </Link>
+                  ))}
+                  {courtLegacyBlocks.map(({ occupation, startSlot, endSlot }) => (
+                    <div
+                      key={occupation.id}
+                      title="Réservation Doinsport — non modifiable depuis Ardenne Padel V2"
+                      className="overflow-hidden rounded border border-dashed border-purple-300 bg-[repeating-linear-gradient(45deg,theme(colors.purple.50),theme(colors.purple.50)_4px,white_4px,white_8px)] px-1.5 py-0.5 text-[11px] leading-tight text-purple-800"
+                      style={{ gridColumn: courtIdx + 2, gridRow: `${startSlot + 2} / ${endSlot + 2}` }}
+                    >
+                      <p className="truncate font-medium">{occupation.clientName ?? "Client Doinsport"}</p>
+                      <p className="truncate text-purple-600">Doinsport</p>
+                    </div>
                   ))}
                   {Array.from({ length: slotCount }, (_, slot) =>
                     occupied.has(slot) ? null : (
