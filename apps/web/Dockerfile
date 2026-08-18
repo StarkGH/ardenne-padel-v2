@@ -10,7 +10,13 @@ COPY apps/api/package.json apps/api/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/domain/package.json packages/domain/package.json
-RUN npm ci
+# --ignore-scripts : le postinstall du workspace apps/api (`prisma
+# generate`) se déclenche aussi ici (npm ci l'exécute pour tous les
+# workspaces du lockfile, pas seulement apps/web) et échouerait sans
+# prisma/schema.prisma, absent à ce stade — voir le même correctif dans
+# apps/api/Dockerfile. Le client Prisma n'est de toute façon jamais utilisé
+# par cette image (apps/web ne parle qu'à l'API HTTP).
+RUN npm ci --ignore-scripts
 
 FROM deps AS build
 COPY . .

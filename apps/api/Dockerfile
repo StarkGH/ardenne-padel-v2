@@ -13,7 +13,13 @@ COPY packages/domain/package.json packages/domain/package.json
 # npm ci a besoin de tous les workspaces déclarés dans le lockfile, même ceux
 # non utilisés par cette image (apps/web) — sinon `npm ci` échoue.
 COPY apps/web/package.json apps/web/package.json
-RUN npm ci
+# --ignore-scripts : le postinstall d'apps/api (`prisma generate`) a besoin
+# de prisma/schema.prisma, qui n'existe pas encore à ce stade (seuls les
+# package.json sont copiés, pour profiter du cache Docker) — la génération
+# réelle est déjà faite explicitement juste après, une fois la source
+# complète copiée. Sans ce flag, `npm ci` plante ici (trouvé au premier
+# vrai `docker build`, jamais exécuté avant ce lot).
+RUN npm ci --ignore-scripts
 
 FROM deps AS build
 COPY . .
