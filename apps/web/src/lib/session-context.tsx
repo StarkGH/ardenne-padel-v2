@@ -31,11 +31,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const me = await api.get<AuthUser>("/auth/me");
       setUser(me);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        setUser(null);
-      } else {
-        throw err;
+      // Traiter toute erreur (401, mais aussi une coupure réseau ou un 5xx
+      // pendant un redémarrage backend) comme "session inconnue" plutôt que
+      // de la relancer : `refresh()` est appelée en `void` depuis un effet,
+      // donc une exception ici devient une rejection non gérée qui plante
+      // l'overlay Next.js sans bénéfice — le pire résultat sûr reste
+      // "considérer l'utilisateur comme déconnecté".
+      if (!(err instanceof ApiError && err.status === 401)) {
+        console.error("Impossible de vérifier la session en cours", err);
       }
+      setUser(null);
     } finally {
       setLoading(false);
     }
