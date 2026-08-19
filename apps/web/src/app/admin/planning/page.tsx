@@ -149,6 +149,11 @@ export default function AdminPlanningPage() {
   // différente et volontairement pas réutilisée ici).
   const [revenueByChannel, setRevenueByChannel] = useState<{ day: RevenueByChannel; week: RevenueByChannel; month: RevenueByChannel } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Replié par défaut : c'est la donnée la moins consultée au quotidien
+  // (remplissage/CA), pas besoin de l'imposer à chaque chargement du
+  // planning — voir aussi dateBarRef ci-dessous, qui dépend de cet état
+  // pour recaler l'en-tête colonnes quand la hauteur de la barre change.
+  const [infoExpanded, setInfoExpanded] = useState(false);
 
   // Mesurée après coup plutôt que devinée en pixels : l'en-tête de colonnes
   // (sticky, calé juste sous cette barre) doit suivre sa vraie hauteur, qui
@@ -158,7 +163,7 @@ export default function AdminPlanningPage() {
   // pour ce changement de taille précis, cause non identifiée).
   useLayoutEffect(() => {
     if (dateBarRef.current) setDateBarHeight(dateBarRef.current.offsetHeight);
-  }, [bookings, revenueByChannel, courts]);
+  }, [bookings, revenueByChannel, courts, infoExpanded]);
 
   useEffect(() => {
     api.get<Court[]>("/courts").then(setCourts).catch(() => {});
@@ -276,14 +281,25 @@ export default function AdminPlanningPage() {
         <span className="text-sm font-medium capitalize text-slate-400">
           {DateTime.fromISO(dateISO).setLocale("fr").toFormat("cccc d MMMM")}
         </span>
-        {bookings && courts.length > 0 && (
+        {(bookings || revenueByChannel) && (
+          <button
+            type="button"
+            onClick={() => setInfoExpanded((v) => !v)}
+            aria-expanded={infoExpanded}
+            aria-label={infoExpanded ? "Replier le remplissage et le chiffre d'affaires" : "Déplier le remplissage et le chiffre d'affaires"}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-slate-600 text-sm leading-none text-slate-400 hover:bg-slate-800"
+          >
+            {infoExpanded ? "−" : "+"}
+          </button>
+        )}
+        {infoExpanded && bookings && courts.length > 0 && (
           <span className="text-xs text-slate-500">
             Remplissage global — 8h-23h30 : <span className="font-medium text-slate-300">{formatOccupancy(globalWindowOccupancy)}</span> · Journée :{" "}
             <span className="font-medium text-slate-300">{formatOccupancy(globalDayOccupancy)}</span>
           </span>
         )}
         {/* CA reconnu par date de jeu (startAt), pas par date de confirmation (voir /admin/reports pour la TVA). Ventilé par canal : Stripe/wallet côté V2 (Payment/WalletTransaction), Doinsport (priceDueCents, prix de vente, encaissé ou non). Doit rester à l'intérieur du conteneur mesuré par `dateBarRef` (voir ADR-0030 addendum 4) : en sortir casserait le calage de l'en-tête colonnes en dessous. */}
-        {revenueByChannel && (
+        {infoExpanded && revenueByChannel && (
           <div className="flex basis-full flex-col gap-0.5 text-xs text-slate-500" title="Chiffre d'affaires par date de jeu, ventilé par canal de paiement">
             <p>
               CA jour : <span className="font-medium text-slate-300">{formatRevenueBreakdown(revenueByChannel.day)}</span>
