@@ -152,6 +152,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         <div className="border-t border-slate-800 px-4 py-3">
           <p className="truncate text-xs text-slate-400">{user.email}</p>
           <p className="mb-2 text-xs text-slate-400">{user.role}</p>
+          <Link href="/" className="mb-2 block text-xs font-medium text-accent-600 hover:text-accent-500">
+            ← Vue client
+          </Link>
           <button
             onClick={() => {
               void logout().then(() => router.push("/admin/login"));
@@ -187,6 +190,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               <p className="truncate px-3 text-xs text-slate-400">
                 {user.email} · {user.role}
               </p>
+              <Link href="/" className="mt-2 block px-3 text-xs font-medium text-accent-600 hover:text-accent-500">
+                ← Vue client
+              </Link>
               <button
                 onClick={() => {
                   void logout().then(() => router.push("/admin/login"));

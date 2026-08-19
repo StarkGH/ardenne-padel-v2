@@ -5,6 +5,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "@/lib/session-context";
+import type { Role } from "@/lib/types";
+
+const ADMIN_ROLES: Role[] = ["STAFF", "ADMIN", "SUPER_ADMIN"];
 
 export function NavBar() {
   const { user, loading, logout } = useSession();
@@ -54,6 +57,14 @@ export function NavBar() {
                 <Link href="/profile" className="rounded-lg px-3 py-2.5 text-slate-200 hover:bg-white/5 hover:text-accent-600">
                   Profil
                 </Link>
+                {ADMIN_ROLES.includes(user.role) && (
+                  <Link
+                    href="/admin/dashboard"
+                    className="rounded-lg px-3 py-2.5 font-medium text-accent-600 hover:bg-white/5"
+                  >
+                    Espace équipe
+                  </Link>
+                )}
                 <button
                   onClick={() => {
                     void logout().then(() => router.push("/"));
