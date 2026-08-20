@@ -37,6 +37,17 @@ const SLOT_MINUTES = 30;
 const DEFAULT_START_MIN = 8 * 60;
 const DEFAULT_END_MIN = 23 * 60 + 30;
 
+/**
+ * Ligne de grille dessinée par cellule (box-shadow) plutôt que via `gap` +
+ * fond de conteneur : avec des colonnes `1fr` de largeur fractionnaire (ex.
+ * 451.779px / 451.788px), un `gap-px` peut tomber sous le pixel physique
+ * selon le zoom navigateur et disparaître — pas la même colonne pour tout le
+ * monde, ce qui rendait le bug difficile à reproduire. Le box-shadow est
+ * peint indépendamment de l'arrondi de largeur de piste et reste net à tout
+ * niveau de zoom.
+ */
+const GRID_LINE = "shadow-[inset_0_-1px_0_0_theme(colors.slate.700),inset_-1px_0_0_0_theme(colors.slate.700)]";
+
 function minutesOfDay(iso: string): number {
   const dt = DateTime.fromISO(iso, { zone: "utc" }).setZone(DISPLAY_TIMEZONE);
   return dt.hour * 60 + dt.minute;
@@ -322,15 +333,15 @@ export default function AdminPlanningPage() {
         <>
           <div className="sticky z-20 overflow-hidden" style={{ top: dateBarHeight }} ref={headerScrollRef}>
             <div
-              className="grid gap-px bg-slate-700 text-xs"
+              className="grid text-xs"
               style={{ gridTemplateColumns: `56px repeat(${courts.length}, minmax(140px, 1fr))` }}
             >
-              <div className="bg-slate-900" />
+              <div className={`bg-slate-900 ${GRID_LINE}`} />
               {courts.map((court) => {
                 const windowOccupancy = computeOccupancy(court.id, occupiedRanges, DEFAULT_START_MIN, DEFAULT_END_MIN);
                 const dayOccupancy = computeOccupancy(court.id, occupiedRanges, startMin, endMin);
                 return (
-                  <div key={court.id} className="flex flex-col items-center justify-center gap-0.5 bg-slate-900 px-2 py-1 text-center">
+                  <div key={court.id} className={`flex flex-col items-center justify-center gap-0.5 bg-slate-900 px-2 py-1 text-center ${GRID_LINE}`}>
                     <span className="text-sm font-semibold text-slate-200">{court.name}</span>
                     <span className="text-[10px] leading-none text-slate-400" title="Taux de remplissage entre 8h et 23h30">
                       8h-23h30 : {formatOccupancy(windowOccupancy)}
@@ -352,7 +363,7 @@ export default function AdminPlanningPage() {
             }}
           >
           <div
-            className="grid gap-px bg-slate-700 text-xs"
+            className="grid text-xs"
             style={{
               gridTemplateColumns: `56px repeat(${courts.length}, minmax(140px, 1fr))`,
               gridTemplateRows: `repeat(${slotCount}, 28px)`,
@@ -364,7 +375,7 @@ export default function AdminPlanningPage() {
               return (
                 <div
                   key={`label-${slot}`}
-                  className="sticky left-0 z-10 flex items-start justify-end bg-slate-900 pr-1 pt-0.5 text-[10px] text-slate-400"
+                  className={`sticky left-0 z-10 flex items-start justify-end bg-slate-900 pr-1 pt-0.5 text-[10px] text-slate-400 ${GRID_LINE}`}
                   style={{ gridColumn: 1, gridRow: slot + 1 }}
                 >
                   {showLabel ? minutesToLabel(slotStartMin) : ""}
@@ -445,7 +456,7 @@ export default function AdminPlanningPage() {
                       <button
                         key={`empty-${slot}`}
                         onClick={() => goToNewBooking(court.id, startMin + slot * SLOT_MINUTES)}
-                        className="bg-slate-900 hover:bg-accent-600/15"
+                        className={`bg-slate-900 hover:bg-accent-600/15 ${GRID_LINE}`}
                         style={{ gridColumn: courtIdx + 2, gridRow: slot + 1 }}
                         title={`Créer une réservation à ${minutesToLabel(startMin + slot * SLOT_MINUTES)}`}
                       />
