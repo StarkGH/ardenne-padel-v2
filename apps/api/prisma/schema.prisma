@@ -1214,6 +1214,7 @@ enum AccessCommandType {
 enum AccessCommandStatus {
   PENDING
   DELIVERED
+  SUCCESS
   EXPIRED
 }
 
@@ -1221,6 +1222,13 @@ enum AccessCommandStatus {
 /// serveur ignore le mapping Modbus/LOGO!, dossier technique §36/§37).
 /// Modèle "pull" : livrées au Raspberry via le snapshot, jamais de push
 /// serveur (le Raspberry n'accepte aucune connexion entrante).
+///
+/// Cycle PENDING -> DELIVERED -> SUCCESS (ACK) -> EXPIRED (fallback). Une
+/// commande DELIVERED mais non acquittée reste éligible et redélivrée à
+/// chaque snapshot tant qu'elle n'est pas ACKée ni expirée (RASPBERRY_PROTOCOL.md
+/// §"Fiabilité des commandes") — DELIVERED n'est jamais un état terminal :
+/// perdre le device après réception (crash avant ouverture, reboot) ne doit
+/// jamais faire disparaître la commande, seul un ACK explicite le fait.
 model AccessCommand {
   id          String              @id @default(uuid())
   zoneId      String              @map("zone_id")
@@ -1232,6 +1240,7 @@ model AccessCommand {
   requestedBy String?             @map("requested_by")
   createdAt   DateTime            @default(now()) @map("created_at")
   deliveredAt DateTime?           @map("delivered_at")
+  ackedAt     DateTime?           @map("acked_at")
   expiresAt   DateTime            @map("expires_at")
 
   @@index([zoneId, status])

@@ -63,6 +63,7 @@ import { AccessGrantRepository } from "./modules/access/access-grant.repository.
 import { AccessGrantService } from "./modules/access/access-grant.service.js";
 import { AutomationDeviceRepository } from "./modules/automation/automation-device.repository.js";
 import { ZoneRepository } from "./modules/automation/zone.repository.js";
+import { LightScheduleRepository } from "./modules/automation/light-schedule.repository.js";
 import { AutomationService } from "./modules/automation/automation.service.js";
 import { createAutomationRouter } from "./modules/automation/automation.routes.js";
 import { LocalAccessProvider } from "./modules/access/local-access-provider.js";
@@ -286,7 +287,13 @@ export function createApp({
   app.use("/api/v1", createAccessRouter(bookingsService, accessGrantService));
 
   // --- Automatisation physique (Raspberry) — Phase 1 : données uniquement ---
-  const automationService = new AutomationService(new AutomationDeviceRepository(prisma), new ZoneRepository(prisma), accessGrantRepository, config);
+  const automationService = new AutomationService(
+    new AutomationDeviceRepository(prisma),
+    new ZoneRepository(prisma),
+    accessGrantRepository,
+    new LightScheduleRepository(prisma),
+    config,
+  );
   app.use("/api/v1", createAutomationRouter(automationService, config, auditLogService));
 
   app.use("/api/v1", createNotificationsRouter(notificationService));

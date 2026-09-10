@@ -59,13 +59,22 @@ async function tick(args: Args) {
   if (snapshotRes.status === 304) {
     console.log(`[${new Date().toISOString()}] snapshot inchangé (304, ETag ${lastEtag})`);
   } else if (snapshotRes.ok) {
-    const body = (await snapshotRes.json()) as { data: { revision: string; zones: unknown[]; grants: unknown[]; commands: unknown[] } };
+    const body = (await snapshotRes.json()) as {
+      data: { revision: string; zones: unknown[]; grants: unknown[]; lightIntervals: unknown[]; commands: Array<{ id: string; zoneKey: string; type: string }> };
+    };
     lastEtag = body.data.revision;
     console.log(
-      `[${new Date().toISOString()}] snapshot reçu — révision ${body.data.revision} — ${body.data.zones.length} zone(s), ${body.data.grants.length} grant(s), ${body.data.commands.length} commande(s)`,
+      `[${new Date().toISOString()}] snapshot reçu — révision ${body.data.revision} — ${body.data.zones.length} zone(s), ${body.data.grants.length} grant(s), ${body.data.lightIntervals.length} intervalle(s) lumière, ${body.data.commands.length} commande(s)`,
     );
     if (body.data.commands.length > 0) {
       console.log("  commandes livrées :", JSON.stringify(body.data.commands));
+      // Simule l'exécution physique (impulsion verrou / bascule éclairage) puis
+      // l'ACK — RASPBERRY_PROTOCOL.md : sans cet ACK, la commande resterait
+      // redélivrée à chaque snapshot jusqu'à expiration.
+      for (const command of body.data.commands) {
+        const ackRes = await callApi(args.baseUrl, args.key, `/devices/automation/commands/${command.id}/ack`, { method: "POST" });
+        console.log(`  ACK commande ${command.id} (${command.type}) : ${ackRes.status}`);
+      }
     }
   } else {
     console.error(`[${new Date().toISOString()}] snapshot en échec : ${snapshotRes.status} ${await snapshotRes.text()}`);

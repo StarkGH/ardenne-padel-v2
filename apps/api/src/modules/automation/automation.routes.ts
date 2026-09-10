@@ -187,6 +187,15 @@ export function createAutomationRouter(service: AutomationService, config: AppCo
     }
   });
 
+  router.post("/devices/automation/commands/:id/ack", gated, requireAutomationDeviceAuth(service), async (req, res, next) => {
+    try {
+      await service.ackCommand(req.params.id!, req.automationDevice!.id);
+      res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.post("/devices/automation/events", gated, requireAutomationDeviceAuth(service), async (req, res, next) => {
     try {
       const parsed = eventsSchema.safeParse(req.body);

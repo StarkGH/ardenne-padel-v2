@@ -65,18 +65,44 @@ export class AutomationDeviceRepository {
     return this.db.accessCommand.create({ data });
   }
 
-  /** Pull uniquement (dossier technique §36 : le Raspberry n'accepte aucune connexion entrante). */
-  async pullPendingCommands(deviceId: string, zoneIds: string[]) {
-    const pending = await this.db.accessCommand.findMany({
-      where: { status: "PENDING", zoneId: { in: zoneIds }, expiresAt: { gt: new Date() } },
+  /**
+   * Lecture seule (RASPBERRY_PROTOCOL.md §"Fiabilité des commandes") : une
+   * commande PENDING ou DELIVERED (non ACKée, non expirée) reste éligible et
+   * doit être redélivrée à chaque snapshot tant qu'aucun ACK n'est reçu —
+   * DELIVERED n'est jamais un état terminal. Ne mute jamais rien ici : la
+   * transition PENDING -> DELIVERED n'a lieu que lorsque le contenu est
+   * effectivement renvoyé (voir `markDelivered`), jamais sur un simple 304.
+   */
+  findDeliverableCommands(zoneIds: string[]) {
+    return this.db.accessCommand.findMany({
+      where: { status: { in: ["PENDING", "DELIVERED"] }, zoneId: { in: zoneIds }, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: "asc" },
     });
-    if (pending.length > 0) {
-      await this.db.accessCommand.updateMany({
-        where: { id: { in: pending.map((c) => c.id) } },
-        data: { status: "DELIVERED", deliveredAt: new Date(), deviceId },
-      });
-    }
-    return pending;
+  }
+
+  /** Transition PENDING -> DELIVERED uniquement (idempotente : ne touche pas celles déjà DELIVERED, donc `deliveredAt` reste stable entre deux livraisons successives). */
+  async markDelivered(ids: string[], deviceId: string) {
+    if (ids.length === 0) return;
+    await this.db.accessCommand.updateMany({
+      where: { id: { in: ids }, status: "PENDING" },
+      data: { status: "DELIVERED", deliveredAt: new Date(), deviceId },
+    });
+  }
+
+  /** ACK explicite du Raspberry — seule transition qui retire définitivement une commande du snapshot. */
+  async ackCommand(id: string, deviceId: string): Promise<boolean> {
+    const result = await this.db.accessCommand.updateMany({
+      where: { id, status: "DELIVERED" },
+      data: { status: "SUCCESS", ackedAt: new Date(), deviceId },
+    });
+    return result.count === 1;
+  }
+
+  /** Fallback si aucun ACK n'arrive avant `expiresAt` (RASPBERRY_PROTOCOL.md) — nettoyage best-effort à chaque snapshot. */
+  expireStaleCommands() {
+    return this.db.accessCommand.updateMany({
+      where: { status: { in: ["PENDING", "DELIVERED"] }, expiresAt: { lte: new Date() } },
+      data: { status: "EXPIRED" },
+    });
   }
 }
