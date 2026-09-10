@@ -86,6 +86,11 @@ const envSchema = z.object({
   KIOSK_SESSION_TTL_MINUTES: z.coerce.number().int().positive().default(10),
   KIOSK_OFFLINE_THRESHOLD_MINUTES: z.coerce.number().int().positive().default(5),
 
+  // Automatisation physique (Raspberry) — Phase 1 : données uniquement.
+  ACCESS_DEVICE_SYNC_ENABLED: boolFromString.default("false"),
+  ACCESS_DEVICE_OFFLINE_THRESHOLD_MINUTES: z.coerce.number().int().positive().default(5),
+  ACCESS_COMMAND_TTL_MINUTES: z.coerce.number().int().positive().default(10),
+
   MIGRATION_INVITATIONS_ENABLED: boolFromString.default("false"),
   ADMIN_MOVE_ENABLED: boolFromString.default("false"),
   NATIVE_API_FUTURE: boolFromString.default("false"),

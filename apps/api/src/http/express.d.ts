@@ -15,6 +15,10 @@ declare global {
         id: string;
         name: string;
       };
+      automationDevice?: {
+        id: string;
+        name: string;
+      };
     }
   }
 }

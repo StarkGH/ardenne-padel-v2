@@ -171,6 +171,7 @@ model Court {
   tariffRules        TariffRule[]
   bookings           Booking[]
   legacyBookings     LegacyBooking[]
+  automationZones    Zone[]
 
   @@map("courts")
 }
@@ -1118,6 +1119,123 @@ model AccessGrant {
   @@index([bookingId])
   @@index([scope, validFrom, validUntil])
   @@map("access_grants")
+}
+
+// =====================================================================
+// Automatisation physique (Raspberry) — Phase 1 : données uniquement.
+// CDC automatisation §"snapshot"/"device sync" — aucune action physique
+// n'est déclenchée par le serveur (dossier technique §36 : le mapping
+// matériel Modbus/LOGO! reste local au Raspberry). Le serveur expose
+// uniquement : zones logiques, snapshot versionné des grants/zones,
+// remontée d'événements idempotente, heartbeat, et une file de commandes
+// MVP explicitement listées (jamais de commande bas niveau).
+// =====================================================================
+
+enum ZoneType {
+  DOOR
+  LIGHT
+  GENERIC
+}
+
+/// Regroupe un ou plusieurs `AccessGrant.scope` (aujourd'hui le courtId) sous
+/// une zone physique pilotable par le Raspberry. `courtId` reste optionnel
+/// car une zone comme "entrée principale" ne correspond à aucun terrain.
+model Zone {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  type      ZoneType
+  label     String
+  courtId   String?  @map("court_id")
+  court     Court?   @relation(fields: [courtId], references: [id])
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  commands AccessCommand[]
+
+  @@map("automation_zones")
+}
+
+enum AccessDeviceType {
+  RASPBERRY_ACCESS_CONTROLLER
+}
+
+enum AccessDeviceStatus {
+  ACTIVE
+  REVOKED
+}
+
+/// Device Raspberry authentifié par clé opaque (même schéma que
+/// `KioskDevice` — CDC §57.1 : la clé brute n'est jamais stockée). Jamais de
+/// session utilisateur pour ces endpoints. `lastSyncRevision` permet le
+/// 304/ETag sur le snapshot.
+model AccessDevice {
+  id               String              @id @default(uuid())
+  name             String
+  type             AccessDeviceType    @default(RASPBERRY_ACCESS_CONTROLLER)
+  deviceKeyHash    String              @unique @map("device_key_hash")
+  status           AccessDeviceStatus  @default(ACTIVE)
+  lastSeenAt       DateTime?           @map("last_seen_at")
+  lastSyncRevision String?             @map("last_sync_revision")
+  lastHeartbeat    Json?               @map("last_heartbeat")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  revokedAt        DateTime?           @map("revoked_at")
+
+  events   AccessDeviceEvent[]
+  commands AccessCommand[]
+
+  @@map("access_devices")
+}
+
+/// Remontée d'événements idempotente : la paire (deviceId, eventId) est
+/// unique, un doublon réseau (retry après perte de connexion) ne crée jamais
+/// deux lignes.
+model AccessDeviceEvent {
+  id         String       @id @default(uuid())
+  deviceId   String       @map("device_id")
+  device     AccessDevice @relation(fields: [deviceId], references: [id])
+  eventId    String       @map("event_id")
+  type       String
+  payload    Json?
+  occurredAt DateTime     @map("occurred_at")
+  receivedAt DateTime     @default(now()) @map("received_at")
+
+  @@unique([deviceId, eventId])
+  @@index([deviceId, occurredAt])
+  @@map("access_device_events")
+}
+
+enum AccessCommandType {
+  OPEN_DOOR_PULSE
+  LIGHT_OVERRIDE_ON
+  LIGHT_OVERRIDE_OFF
+  CLEAR_LIGHT_OVERRIDE
+}
+
+enum AccessCommandStatus {
+  PENDING
+  DELIVERED
+  EXPIRED
+}
+
+/// Commandes MVP explicitement listées — jamais de commande bas niveau (le
+/// serveur ignore le mapping Modbus/LOGO!, dossier technique §36/§37).
+/// Modèle "pull" : livrées au Raspberry via le snapshot, jamais de push
+/// serveur (le Raspberry n'accepte aucune connexion entrante).
+model AccessCommand {
+  id          String              @id @default(uuid())
+  zoneId      String              @map("zone_id")
+  zone        Zone                @relation(fields: [zoneId], references: [id])
+  deviceId    String?             @map("device_id")
+  device      AccessDevice?       @relation(fields: [deviceId], references: [id])
+  type        AccessCommandType
+  status      AccessCommandStatus @default(PENDING)
+  requestedBy String?             @map("requested_by")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  deliveredAt DateTime?           @map("delivered_at")
+  expiresAt   DateTime            @map("expires_at")
+
+  @@index([zoneId, status])
+  @@map("access_commands")
 }
 
 enum NotificationTemplate {

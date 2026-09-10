@@ -466,6 +466,25 @@ export interface AdminAccessGrant {
   booking: { startAt: string; court: { name: string }; organizer: { firstName: string; lastName: string; email: string } };
 }
 
+// --- Automatisation physique (Raspberry) — Phase 1 : données uniquement ---
+export interface AdminAutomationDevice {
+  id: string;
+  name: string;
+  lastSeenAt: string | null;
+  lastSyncRevision: string | null;
+  lastHeartbeat: Record<string, unknown> | null;
+  offline: boolean;
+}
+
+export interface AdminAutomationZone {
+  id: string;
+  key: string;
+  type: "DOOR" | "LIGHT" | "GENERIC";
+  label: string;
+  courtId: string | null;
+  courtName: string | null;
+}
+
 // --- Écran 24 : audit log ---
 export interface AuditLogEntry {
   id: string;

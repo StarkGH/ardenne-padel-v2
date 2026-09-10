@@ -15,7 +15,8 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "seed": "tsx --conditions=development prisma/seed.ts",
     "import:legacy": "tsx --conditions=development src/scripts/import-legacy.ts",
-    "provision:admin": "node dist/scripts/provision-admin.js"
+    "provision:admin": "node dist/scripts/provision-admin.js",
+    "simulate:automation-device": "tsx --conditions=development src/scripts/simulate-automation-device.ts"
   },
   "dependencies": {
     "@ardenne/config": "0.1.0",

@@ -61,6 +61,10 @@ import { createTerminalRouter } from "./modules/payments/terminal.routes.js";
 import type { TerminalProvider } from "./modules/payments/terminal-provider.js";
 import { AccessGrantRepository } from "./modules/access/access-grant.repository.js";
 import { AccessGrantService } from "./modules/access/access-grant.service.js";
+import { AutomationDeviceRepository } from "./modules/automation/automation-device.repository.js";
+import { ZoneRepository } from "./modules/automation/zone.repository.js";
+import { AutomationService } from "./modules/automation/automation.service.js";
+import { createAutomationRouter } from "./modules/automation/automation.routes.js";
 import { LocalAccessProvider } from "./modules/access/local-access-provider.js";
 import { createAccessRouter } from "./modules/access/access.routes.js";
 import type { AccessProvider } from "./modules/access/access-provider.js";
@@ -280,6 +284,11 @@ export function createApp({
   app.use("/api/v1", createTerminalRouter(kioskDeviceService, terminal, terminalDeviceRepository, config));
   app.use("/api/v1", createTerminalAdminRouter(terminalDeviceRepository, auditLogService));
   app.use("/api/v1", createAccessRouter(bookingsService, accessGrantService));
+
+  // --- Automatisation physique (Raspberry) — Phase 1 : données uniquement ---
+  const automationService = new AutomationService(new AutomationDeviceRepository(prisma), new ZoneRepository(prisma), accessGrantRepository, config);
+  app.use("/api/v1", createAutomationRouter(automationService, config, auditLogService));
+
   app.use("/api/v1", createNotificationsRouter(notificationService));
 
   const crmService = new CrmService(new CrmRepository(prisma), walletRepository, new ClientNoteRepository(prisma), auditLogService, prisma);

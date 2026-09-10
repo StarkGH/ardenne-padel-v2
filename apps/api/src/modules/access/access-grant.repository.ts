@@ -34,4 +34,17 @@ export class AccessGrantRepository {
   updateStatus(id: string, status: "PENDING" | "ACTIVE" | "REVOKED" | "EXPIRED" | "FAILED", extra: Prisma.AccessGrantUpdateInput = {}) {
     return this.db.accessGrant.update({ where: { id }, data: { status, ...extra } });
   }
+
+  /** Snapshot device (automatisation) — grants actifs des zones demandées dans la fenêtre. */
+  findActiveInScopesWindow(scopes: string[], from: Date, to: Date) {
+    return this.db.accessGrant.findMany({
+      where: {
+        scope: { in: scopes },
+        status: "ACTIVE",
+        validFrom: { lt: to },
+        validUntil: { gt: from },
+      },
+      orderBy: { validFrom: "asc" },
+    });
+  }
 }
