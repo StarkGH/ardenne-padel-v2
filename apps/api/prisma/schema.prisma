@@ -262,38 +262,38 @@ model ClientMigrationInvitation {
 /// une ligne par terrain occupé plutôt qu'un tableau, pour permettre une
 /// requête directe par terrain+plage horaire (même besoin que `Booking`).
 model LegacyBooking {
-  id             String        @id @default(uuid())
-  externalId     String        @map("external_id")
-  courtId        String        @map("court_id")
-  court          Court         @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  id                 String                     @id @default(uuid())
+  externalId         String                     @map("external_id")
+  courtId            String                     @map("court_id")
+  court              Court                      @relation(fields: [courtId], references: [id], onDelete: Cascade)
   /// Nullable : la correspondance DTO actuelle (`getBooking`) n'expose pas
   /// encore le propriétaire Doinsport de la réservation — dépendance
   /// explicite pour le lot d'import (voir ADR-0031), pas une omission
   /// silencieuse ici.
-  legacyClientId String?       @map("legacy_client_id")
-  legacyClient   LegacyClient? @relation(fields: [legacyClientId], references: [externalId])
-  startAt        DateTime      @map("start_at")
-  endAt          DateTime      @map("end_at")
-  canceled       Boolean       @default(false)
-  comment        String?
-  lastSyncedAt   DateTime      @map("last_synced_at")
-  rawHash        String?       @map("raw_hash")
+  legacyClientId     String?                    @map("legacy_client_id")
+  legacyClient       LegacyClient?              @relation(fields: [legacyClientId], references: [externalId])
+  startAt            DateTime                   @map("start_at")
+  endAt              DateTime                   @map("end_at")
+  canceled           Boolean                    @default(false)
+  comment            String?
+  lastSyncedAt       DateTime                   @map("last_synced_at")
+  rawHash            String?                    @map("raw_hash")
   /// CDC §55 écran 3 — total dû par les participants non annulés
   /// (`participants[].price` Doinsport, somme) et total encaissé
   /// (`payments[]` statut `succeeded`, somme `amountReceived`). Conservés
   /// séparément (pas seulement `fullyPaid`) pour permettre le calcul du CA
   /// planning sur les réservations Doinsport (ADR-0038 addendum "CA lignes
   /// Doinsport") sans recalcul depuis le payload brut à chaque page.
-  priceDueCents      Int           @default(0) @map("price_due_cents")
-  priceReceivedCents Int           @default(0) @map("price_received_cents")
+  priceDueCents      Int                        @default(0) @map("price_due_cents")
+  priceReceivedCents Int                        @default(0) @map("price_received_cents")
   /// Dérivé de `priceReceivedCents >= priceDueCents` à l'import. Pas de
   /// statut par participant : `payments[].participantId` ne correspond à
   /// aucun identifiant exposé par ailleurs dans `participants[]` (vérifié
   /// empiriquement sur plusieurs réservations réelles) — seule l'agrégation
   /// au niveau de la réservation est fiable. `true` par défaut (pas d'alerte
   /// tant que le calcul n'a pas explicitement établi un manque).
-  fullyPaid      Boolean       @default(true) @map("fully_paid")
-  participants   LegacyBookingParticipant[]
+  fullyPaid          Boolean                    @default(true) @map("fully_paid")
+  participants       LegacyBookingParticipant[]
 
   @@unique([externalId, courtId])
   @@index([courtId, startAt, endAt])
@@ -1140,19 +1140,72 @@ enum ZoneType {
 /// Regroupe un ou plusieurs `AccessGrant.scope` (aujourd'hui le courtId) sous
 /// une zone physique pilotable par le Raspberry. `courtId` reste optionnel
 /// car une zone comme "entrée principale" ne correspond à aucun terrain.
+/// `doorBeforeMinutes`/`doorAfterMinutes` (zone `DOOR` avec `courtId`) et
+/// `lightBeforeMinutes`/`lightAfterMinutes` (zone `LIGHT`) surchargent, pour
+/// ce terrain, les marges globales `ACCESS_ENABLED_BEFORE/AFTER_MINUTES` et
+/// `LIGHT_ENABLED_BEFORE/AFTER_MINUTES` — `null` = utiliser la valeur
+/// globale. Éditables depuis `/admin/automation` plutôt que par variable
+/// d'environnement, pour permettre un réglage différent par terrain sans
+/// redéploiement (demande explicite : chaque terrain peut avoir des
+/// horaires d'accès/éclairage différents).
 model Zone {
-  id        String   @id @default(uuid())
-  key       String   @unique
-  type      ZoneType
-  label     String
-  courtId   String?  @map("court_id")
-  court     Court?   @relation(fields: [courtId], references: [id])
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now()) @map("created_at")
+  id                 String   @id @default(uuid())
+  key                String   @unique
+  type               ZoneType
+  label              String
+  courtId            String?  @map("court_id")
+  court              Court?   @relation(fields: [courtId], references: [id])
+  active             Boolean  @default(true)
+  doorBeforeMinutes  Int?     @map("door_before_minutes")
+  doorAfterMinutes   Int?     @map("door_after_minutes")
+  lightBeforeMinutes Int?     @map("light_before_minutes")
+  lightAfterMinutes  Int?     @map("light_after_minutes")
+  createdAt          DateTime @default(now()) @map("created_at")
 
-  commands AccessCommand[]
+  commands   AccessCommand[]
+  staffCodes StaffAccessCodeZone[]
 
   @@map("automation_zones")
+}
+
+enum StaffAccessCodeStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+/// Code maître employé (nominatif, CDC : "avoir aussi les codes maîtres pour
+/// les employés") — jamais lié à une réservation, contrairement à
+/// `AccessGrant`. Porté par `zones` (many-to-many via `StaffAccessCodeZone`) :
+/// zone par zone plutôt qu'universel, décision explicite (chaque employé
+/// peut n'avoir accès qu'à certaines portes/zones). `expiresAt` optionnel —
+/// `null` = valable jusqu'à révocation manuelle (ex. gérant permanent),
+/// renseigné pour un accès temporaire (remplaçant, prestataire, stagiaire).
+model StaffAccessCode {
+  id             String                @id @default(uuid())
+  employeeName   String                @map("employee_name")
+  codeCiphertext String                @map("code_ciphertext")
+  codeIv         String                @map("code_iv")
+  status         StaffAccessCodeStatus @default(ACTIVE)
+  expiresAt      DateTime?             @map("expires_at")
+  createdBy      String?               @map("created_by")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  revokedAt      DateTime?             @map("revoked_at")
+
+  zones StaffAccessCodeZone[]
+
+  @@map("staff_access_codes")
+}
+
+model StaffAccessCodeZone {
+  id     String          @id @default(uuid())
+  codeId String          @map("code_id")
+  code   StaffAccessCode @relation(fields: [codeId], references: [id], onDelete: Cascade)
+  zoneId String          @map("zone_id")
+  zone   Zone            @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  @@unique([codeId, zoneId])
+  @@map("staff_access_code_zones")
 }
 
 enum AccessDeviceType {
@@ -1169,16 +1222,16 @@ enum AccessDeviceStatus {
 /// session utilisateur pour ces endpoints. `lastSyncRevision` permet le
 /// 304/ETag sur le snapshot.
 model AccessDevice {
-  id               String              @id @default(uuid())
+  id               String             @id @default(uuid())
   name             String
-  type             AccessDeviceType    @default(RASPBERRY_ACCESS_CONTROLLER)
-  deviceKeyHash    String              @unique @map("device_key_hash")
-  status           AccessDeviceStatus  @default(ACTIVE)
-  lastSeenAt       DateTime?           @map("last_seen_at")
-  lastSyncRevision String?             @map("last_sync_revision")
-  lastHeartbeat    Json?               @map("last_heartbeat")
-  createdAt        DateTime            @default(now()) @map("created_at")
-  revokedAt        DateTime?           @map("revoked_at")
+  type             AccessDeviceType   @default(RASPBERRY_ACCESS_CONTROLLER)
+  deviceKeyHash    String             @unique @map("device_key_hash")
+  status           AccessDeviceStatus @default(ACTIVE)
+  lastSeenAt       DateTime?          @map("last_seen_at")
+  lastSyncRevision String?            @map("last_sync_revision")
+  lastHeartbeat    Json?              @map("last_heartbeat")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  revokedAt        DateTime?          @map("revoked_at")
 
   events   AccessDeviceEvent[]
   commands AccessCommand[]
@@ -1204,17 +1257,21 @@ model AccessDeviceEvent {
   @@map("access_device_events")
 }
 
+/// CDC_APV2_COMMANDES_MANUELLES_RASPBERRY_LOGO §6/§9/§10 — vocabulaire métier
+/// exposé au Raspberry ; AP V2 ne connaît jamais les adresses Modbus (M2/M3)
+/// ni le mapping LOGO! réel, qui reste entièrement local au Raspberry.
 enum AccessCommandType {
-  OPEN_DOOR_PULSE
-  LIGHT_OVERRIDE_ON
-  LIGHT_OVERRIDE_OFF
-  CLEAR_LIGHT_OVERRIDE
+  DOOR_OPEN
+  DOOR_CLOSE
+  LIGHT_ON
+  LIGHT_OFF
 }
 
 enum AccessCommandStatus {
   PENDING
   DELIVERED
   SUCCESS
+  FAILED
   EXPIRED
 }
 
@@ -1223,27 +1280,39 @@ enum AccessCommandStatus {
 /// Modèle "pull" : livrées au Raspberry via le snapshot, jamais de push
 /// serveur (le Raspberry n'accepte aucune connexion entrante).
 ///
-/// Cycle PENDING -> DELIVERED -> SUCCESS (ACK) -> EXPIRED (fallback). Une
-/// commande DELIVERED mais non acquittée reste éligible et redélivrée à
+/// Cycle PENDING -> DELIVERED -> SUCCESS|FAILED (ACK) -> EXPIRED (fallback).
+/// Une commande DELIVERED mais non acquittée reste éligible et redélivrée à
 /// chaque snapshot tant qu'elle n'est pas ACKée ni expirée (RASPBERRY_PROTOCOL.md
 /// §"Fiabilité des commandes") — DELIVERED n'est jamais un état terminal :
 /// perdre le device après réception (crash avant ouverture, reboot) ne doit
 /// jamais faire disparaître la commande, seul un ACK explicite le fait.
+/// SUCCESS/FAILED ne veulent dire que "le Raspberry a traité la commande" —
+/// jamais une preuve d'état physique réel (pas de capteur de porte à ce
+/// stade, CDC_APV2_COMMANDES_MANUELLES_RASPBERRY_LOGO §15).
+///
+/// `zoneId` est optionnel : une commande automatisée (future, planning
+/// lumière) cible une zone ; une commande manuelle déclenchée depuis le
+/// back-office (§11 du CDC ci-dessus) cible directement un `deviceId`, sans
+/// zone — un seul Raspberry pilotant porte + éclairage du club.
 model AccessCommand {
   id          String              @id @default(uuid())
-  zoneId      String              @map("zone_id")
-  zone        Zone                @relation(fields: [zoneId], references: [id])
+  zoneId      String?             @map("zone_id")
+  zone        Zone?               @relation(fields: [zoneId], references: [id])
   deviceId    String?             @map("device_id")
   device      AccessDevice?       @relation(fields: [deviceId], references: [id])
   type        AccessCommandType
   status      AccessCommandStatus @default(PENDING)
   requestedBy String?             @map("requested_by")
+  /// Résultat rapporté par le Raspberry à l'ACK : "SUCCESS", ou un code
+  /// d'erreur local (ex. "LOGO_CONNECTION_FAILED") si `status = FAILED`.
+  result      String?
   createdAt   DateTime            @default(now()) @map("created_at")
   deliveredAt DateTime?           @map("delivered_at")
   ackedAt     DateTime?           @map("acked_at")
   expiresAt   DateTime            @map("expires_at")
 
   @@index([zoneId, status])
+  @@index([deviceId, status])
   @@map("access_commands")
 }
 

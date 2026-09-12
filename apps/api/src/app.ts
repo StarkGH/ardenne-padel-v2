@@ -63,6 +63,10 @@ import { AccessGrantRepository } from "./modules/access/access-grant.repository.
 import { AccessGrantService } from "./modules/access/access-grant.service.js";
 import { AutomationDeviceRepository } from "./modules/automation/automation-device.repository.js";
 import { ZoneRepository } from "./modules/automation/zone.repository.js";
+import { ZoneAccessMarginsAdapter } from "./modules/automation/zone-access-margins.adapter.js";
+import { StaffAccessCodeRepository } from "./modules/automation/staff-access-code.repository.js";
+import { StaffAccessCodeService } from "./modules/automation/staff-access-code.service.js";
+import { createStaffAccessCodeRouter } from "./modules/automation/staff-access-code.routes.js";
 import { LightScheduleRepository } from "./modules/automation/light-schedule.repository.js";
 import { AutomationService } from "./modules/automation/automation.service.js";
 import { createAutomationRouter } from "./modules/automation/automation.routes.js";
@@ -182,7 +186,11 @@ export function createApp({
   const notificationService = new NotificationService(notificationOutboxRepository, emailer, prisma);
   const accessGrantRepository = new AccessGrantRepository(prisma);
   const accessProviderImpl = accessProvider ?? new LocalAccessProvider();
-  const accessGrantService = new AccessGrantService(accessGrantRepository, accessProviderImpl, config);
+  // ZoneRepository construit ici (avant AutomationService plus bas) pour que
+  // AccessGrantService puisse recevoir les marges par terrain éditées dans
+  // /admin/automation (ZoneAccessMarginsAdapter, module `automation`).
+  const zoneRepositoryForMargins = new ZoneRepository(prisma);
+  const accessGrantService = new AccessGrantService(accessGrantRepository, accessProviderImpl, config, new ZoneAccessMarginsAdapter(zoneRepositoryForMargins, config));
 
   const paymentsRepository = new PaymentsRepository(prisma);
   const walletRepository = new WalletRepository(prisma);
@@ -287,14 +295,17 @@ export function createApp({
   app.use("/api/v1", createAccessRouter(bookingsService, accessGrantService));
 
   // --- Automatisation physique (Raspberry) — Phase 1 : données uniquement ---
+  const staffAccessCodeService = new StaffAccessCodeService(new StaffAccessCodeRepository(prisma), zoneRepositoryForMargins, config);
   const automationService = new AutomationService(
     new AutomationDeviceRepository(prisma),
-    new ZoneRepository(prisma),
+    zoneRepositoryForMargins,
     accessGrantRepository,
     new LightScheduleRepository(prisma),
+    staffAccessCodeService,
     config,
   );
   app.use("/api/v1", createAutomationRouter(automationService, config, auditLogService));
+  app.use("/api/v1", createStaffAccessCodeRouter(staffAccessCodeService, auditLogService));
 
   app.use("/api/v1", createNotificationsRouter(notificationService));
 

@@ -6,10 +6,16 @@ réellement en place, pas le CDC théorique — en cas de divergence future entr
 ce fichier fait foi côté implémentation et doit être mis à jour dans le même commit que
 tout changement de comportement.
 
-**Statut** : Phase 1 — données uniquement, aucune action physique déclenchée par le
-serveur. Testé en dev local (WSL) le 2026-09-10, transport HTTP validé de bout en bout
-(auth, snapshot, ETag/304, heartbeat, commandes avec ACK, événements). Le Raspberry réel
-(`ardenne-access-01`) n'est pas encore branché dessus.
+**Statut** : Phase 1 (snapshot/heartbeat/ACK/événements) + commandes manuelles
+(CDC_APV2_COMMANDES_MANUELLES_RASPBERRY_LOGO). Testé en dev local (WSL) le 2026-09-10,
+transport HTTP validé de bout en bout (auth, snapshot, ETag/304, heartbeat, commandes
+device-ciblées avec ACK SUCCESS/FAILED, événements), y compris en navigateur réel sur le
+back-office (`/admin/automation`). **Validé sur le POC matériel réel** le même jour via
+`raspberry_bridge.py` (WSL, sur le même réseau que le LOGO!, `192.168.0.3:503`) : les 4
+commandes (`DOOR_OPEN`, `DOOR_CLOSE`, `LIGHT_ON`, `LIGHT_OFF`) pulsent réellement les coils
+M2/M3/M4/M1 correspondants et retournent un ACK `SUCCESS`. Ce script bench-teste depuis un
+PC ayant accès au réseau du LOGO! — le vrai Raspberry `ardenne-access-01` n'exécute pas
+encore ce pont lui-même (portage direct : mêmes appels HTTP, même `LogoDriver`).
 
 **Flag** : `ACCESS_DEVICE_SYNC_ENABLED` (défaut `false`). Tant qu'il est à `false`, tous
 les endpoints `/devices/automation/*` répondent `503` sans authentifier quoi que ce soit.
@@ -104,7 +110,7 @@ Content-Type: application/json
       { "zoneKey": "light-a446f342-e19f-46e7-8dc2-1849fdab22a2", "startsAt": "2026-09-11T15:55:00.000Z", "endsAt": "2026-09-11T18:40:00.000Z" }
     ],
     "commands": [
-      { "id": "e04f5abb-3999-4e6d-a44f-f5adaeb7e33e", "zoneKey": "main_entry", "type": "OPEN_DOOR_PULSE" }
+      { "id": "56bf74ec-1055-4e57-90d1-adcf7e1d2ac4", "zoneKey": null, "type": "LIGHT_ON", "createdAt": "2026-09-10T15:51:12.653Z", "expiresAt": "2026-09-10T15:51:42.652Z" }
     ]
   }
 }
@@ -123,13 +129,15 @@ JSON réel obtenu en dev local le 2026-09-10 (identifiants de test, hors product
 | `zones[].courtId` | string uuid ou `null` | Renseigné si la zone est liée à un terrain V2. |
 | `grants[].scope` | string | **Piège connu, à respecter absolument** : pour un grant `V2_GENERATED`, `scope` = l'UUID `Court.id`. Pour un grant `LEGACY_IMPORTED`, `scope` = le libellé Doinsport du terrain (`playgroundName`, ex. `"Padel 1"`) **quand Doinsport l'a fourni** — donc une chaîne humaine, pas un UUID. Le serveur résout déjà cette double correspondance avant d'inclure le grant dans le snapshot (voir §7) ; côté Raspberry, il suffit de faire correspondre `grants[].scope` à la zone dont c'est soit la clé, soit le libellé attendu au moment du provisionnement (à documenter localement, hors serveur). |
 | `grants[].code` | string `NNNN#` | Le PIN en clair, déchiffré côté serveur juste avant l'envoi (jamais stocké en clair en base — CDC §57.1/§34.4). Ne jamais logger ce champ. |
-| `grants[].origin` | `V2_GENERATED \| LEGACY_IMPORTED` | Purement informatif pour le Raspberry (debug/audit) — la validation locale du code ne doit pas différer selon l'origine. |
+| `grants[].origin` | `V2_GENERATED \| LEGACY_IMPORTED \| STAFF_MASTER` | Purement informatif pour le Raspberry (debug/audit) — la validation locale du code ne doit pas différer selon l'origine. `STAFF_MASTER` = code maître employé (nominatif, zone par zone, jamais lié à une réservation — géré depuis `/admin/automation`, section "Codes maîtres employés") ; `validUntil` vaut la date d'expiration choisie à la création, ou une date très lointaine (2099) si le code n'expire jamais. |
 | `grants[].validFrom` / `validUntil` | ISO 8601 UTC | Fenêtre de validité (inclut déjà les marges `ACCESS_ENABLED_BEFORE/AFTER_MINUTES`). |
 | `lightIntervals[].zoneKey` | string | Référence `zones[].key` d'une zone `LIGHT`. |
 | `lightIntervals[].startsAt` / `endsAt` | ISO 8601 UTC | Intervalle déjà marginé (`LIGHT_ENABLED_BEFORE/AFTER_MINUTES`) et **fusionné** : deux réservations qui se chevauchent ou se suivent immédiatement après marge ne produisent jamais deux intervalles distincts (voir §8). |
 | `commands[].id` | string uuid | À utiliser tel quel dans `POST /commands/:id/ack`. |
-| `commands[].zoneKey` | string | Référence `zones[].key`. |
-| `commands[].type` | `OPEN_DOOR_PULSE \| LIGHT_OVERRIDE_ON \| LIGHT_OVERRIDE_OFF \| CLEAR_LIGHT_OVERRIDE` | Liste MVP fermée — jamais de commande bas niveau (dossier technique §36/§37). |
+| `commands[].zoneKey` | string ou `null` | Référence `zones[].key` pour une commande zone-scopée (future automatisation planifiée). **`null` pour une commande manuelle** (§12) — celle-ci cible directement le device qui l'a récupérée, jamais une zone. |
+| `commands[].type` | `DOOR_OPEN \| DOOR_CLOSE \| LIGHT_ON \| LIGHT_OFF` | Liste MVP fermée — jamais de commande bas niveau (aucune adresse Modbus/registre LOGO! ne transite par ce protocole, dossier technique §36/§37). Mapping réel, validé sur le POC matériel le 2026-09-10 (`raspberry_bridge.py`, impulsion ~500 ms — write coil `True` puis `False` après `pulse_seconds`) : `DOOR_OPEN` → M2 (adresse PyModbus zero-based **8257**) ; `DOOR_CLOSE` → M3 (**8258**) ; `LIGHT_ON` → M4 (**8259**) ; `LIGHT_OFF` → M1 (**8256**). Ces adresses sont **entièrement locales au pont Raspberry**, jamais exposées à AP V2 ni au frontend admin — seuls les 4 types de commande métier transitent par ce protocole. |
+| `commands[].createdAt` | ISO 8601 UTC | Heure de création de la commande — permet au Raspberry d'appliquer son propre délai de garde en plus de `expiresAt`. |
+| `commands[].expiresAt` | ISO 8601 UTC | **Ne jamais exécuter une commande après cette heure**, même si elle apparaît encore dans un snapshot en cache ou arrive en retard sur une connexion lente (CDC §7 : les commandes manuelles expirent en 30 s par défaut, `MANUAL_COMMAND_TTL_SECONDS`). |
 
 Une commande n'apparaît dans `commands[]` que si elle n'a **pas encore été ACKée** et n'a
 pas expiré (voir §5). Elle réapparaît à **chaque** appel tant qu'aucun ACK n'est reçu — y
@@ -170,7 +178,13 @@ HTTP/1.1 204 No Content
 Le serveur enregistre `lastSeenAt = now()`, `lastSyncRevision = revision`,
 `lastHeartbeat = <le JSON envoyé>` — consultables dans le back-office
 (`GET /admin/automation-devices`, champ `offline` calculé via
-`ACCESS_DEVICE_OFFLINE_THRESHOLD_MINUTES`, défaut 5 min).
+`AUTOMATION_DEVICE_OFFLINE_AFTER_SECONDS`, défaut **30 s**). Ce seuil est le seul utilisé
+pour décider si un device est "en ligne" — à la fois pour le badge admin et pour autoriser
+ou refuser une commande manuelle (§12) : il n'existe qu'une seule définition d'"en ligne"
+dans tout le système. Un Raspberry qui envoie son heartbeat toutes les 15-30 s (recommandé
+§10) reste donc "en ligne" sans marge excessive ; un heartbeat moins fréquent que ce seuil
+ferait apparaître le device hors ligne entre deux battements, y compris quand il fonctionne
+normalement — caler l'intervalle d'envoi sur ce seuil, pas l'inverse.
 
 ---
 
@@ -191,13 +205,22 @@ DELIVERED (marqué côté serveur — mais PAS retirée du snapshot pour autant)
    ▼
    │  POST /commands/:id/ack (après exécution physique réussie)
    ▼
-SUCCESS   (retirée du snapshot, définitivement — un revision différent
-           est immédiatement visible, voir §6)
+SUCCESS / FAILED  (retirée du snapshot, définitivement — un revision différent
+                   est immédiatement visible, voir §6)
 
 Fallback si aucun ACK n'arrive jamais :
-DELIVERED → EXPIRED à `expiresAt` (défaut `ACCESS_COMMAND_TTL_MINUTES` = 10 min
-après la création) — nettoyage best-effort exécuté au début de chaque `buildSnapshot`.
+DELIVERED → EXPIRED à `expiresAt` — 10 min pour une commande zone-scopée
+(`ACCESS_COMMAND_TTL_MINUTES`), **30 s pour une commande manuelle**
+(`MANUAL_COMMAND_TTL_SECONDS`, §12) — nettoyage best-effort exécuté au début de chaque
+`buildSnapshot`.
 ```
+
+**SUCCESS et FAILED sont tous les deux terminaux** — la distinction ne porte que sur le
+résultat rapporté par le Raspberry (`status` du corps de l'ACK, ci-dessous), jamais sur le
+fait que la commande a été traitée. Ni l'un ni l'autre ne prouve un état physique réel :
+un ACK `SUCCESS` signifie seulement "le Raspberry a transmis l'ordre au LOGO! sans erreur
+locale détectée", jamais "la porte est physiquement ouverte" (aucun capteur de porte à ce
+stade — CDC_APV2_COMMANDES_MANUELLES_RASPBERRY_LOGO §15). Même logique pour l'éclairage.
 
 **DELIVERED n'est jamais un état terminal côté serveur.** Recevoir une commande via
 `GET /snapshot` ne suffit pas à la faire disparaître — seul un ACK explicite le fait.
@@ -214,22 +237,43 @@ se serait perdu en route).
 ### Requête
 
 ```
-POST /api/v1/devices/automation/commands/e04f5abb-3999-4e6d-a44f-f5adaeb7e33e/ack HTTP/1.1
+POST /api/v1/devices/automation/commands/56bf74ec-1055-4e57-90d1-adcf7e1d2ac4/ack HTTP/1.1
 Authorization: Bearer <deviceKey>
+Content-Type: application/json
+
+{ "status": "SUCCESS" }
 ```
 
-Pas de corps.
+ou, en cas d'échec local :
+
+```json
+{ "status": "FAILED", "error": "LOGO_CONNECTION_FAILED" }
+```
+
+`status` est optionnel et vaut `SUCCESS` par défaut (compatibilité avec un appel sans
+corps, comme le fait le simulateur de dev actuel) ; `error` est une chaîne libre
+(≤ 200 caractères) stockée telle quelle dans `result` — pas d'enum fermé côté serveur,
+mais des valeurs indicatives : `LOGO_CONNECTION_FAILED`, `MODBUS_WRITE_FAILED`,
+`COMMAND_EXECUTION_FAILED`.
 
 ### Réponses
 
 | Code | Cas |
 |---|---|
-| `204 No Content` | ACK accepté — la commande passe `DELIVERED → SUCCESS`. |
-| `404 Not Found` | Commande inconnue, **déjà ACKée** (pas de double-crédit), jamais délivrée (encore `PENDING`, donc pas encore `DELIVERED` — l'ACK ne saute jamais l'étape de livraison), ou expirée. Le Raspberry ne doit **pas** retenter automatiquement sur un `404` de ce type (ce n'est pas une erreur transitoire) — journaliser et passer à autre chose. |
+| `204 No Content` | ACK accepté — la commande passe `DELIVERED → SUCCESS` ou `DELIVERED → FAILED` selon `status`. |
+| `422 Unprocessable Entity` | Corps invalide (`status` autre que `SUCCESS`/`FAILED`, `error` trop long). |
+| `404 Not Found`, code `COMMAND_NOT_FOUND` | Commande inconnue, ou **déjà ACKée** (pas de double-crédit), ou jamais délivrée (encore `PENDING`, donc pas encore `DELIVERED` — l'ACK ne saute jamais l'étape de livraison). |
+| `404 Not Found`, code `COMMAND_EXPIRED` | La commande a expiré avant que l'ACK n'arrive (ex. Raspberry hors ligne au moment où elle a été mise en file, ou latence réseau > TTL). Distinct de `COMMAND_NOT_FOUND` pour permettre au Raspberry de logguer précisément "trop tard" plutôt que "inconnue". |
+
+Dans les deux cas `404`, le Raspberry ne doit **pas** retenter automatiquement (ce n'est
+jamais une erreur transitoire) — journaliser et passer à autre chose.
 
 Vérifié en direct (dev, 2026-09-10) : `GET` (commande présente) → `GET` sans ACK
-(commande **toujours** présente, id identique) → `ACK` (`204`) → `GET` (commande absente)
-→ ré-`ACK` sur le même id (`404`).
+(commande **toujours** présente, id identique) → `ACK {"status":"SUCCESS"}` (`204`) →
+`GET` (commande absente) → ré-`ACK` sur le même id (`404 COMMAND_NOT_FOUND`). Egalement
+vérifié : `ACK {"status":"FAILED","error":"LOGO_CONNECTION_FAILED"}` → statut `FAILED`
+et `result` renseigné, visibles depuis `GET /admin/automation-commands/:id` et l'historique
+du back-office.
 
 ---
 
@@ -282,8 +326,14 @@ Pour chaque zone `LIGHT` avec un `courtId`, le serveur interroge les réservatio
 terrain (table `Booking`, statuts `CONFIRMED`/`COMPLETED`, **et** `LegacyBooking` non
 annulées — une lumière doit s'allumer pour toute réservation réelle, quelle que soit son
 origine V2/Legacy), applique les marges `LIGHT_ENABLED_BEFORE_MINUTES` (défaut 5) et
-`LIGHT_ENABLED_AFTER_MINUTES` (défaut 10), puis fusionne tout intervalle qui chevauche ou
-touche exactement le suivant (`apps/api/src/modules/automation/light-interval-merger.ts`).
+`LIGHT_ENABLED_AFTER_MINUTES` (défaut 10) — **sauf si la zone porte sa propre surcharge**
+(`lightBeforeMinutes`/`lightAfterMinutes`, éditable par terrain depuis `/admin/automation`,
+`PATCH /admin/automation-zones/:id`, `null` = revenir au réglage global) — puis fusionne
+tout intervalle qui chevauche ou touche exactement le suivant
+(`apps/api/src/modules/automation/light-interval-merger.ts`). Même mécanisme de surcharge
+par terrain côté code d'accès (`doorBeforeMinutes`/`doorAfterMinutes` sur une zone `DOOR`
+liée à un `courtId`, via `ZoneAccessMarginsAdapter` — module `access`, jamais couplé
+directement à `automation`).
 
 Deux réservations consécutives 18h-19h puis 19h-20h ne produisent donc jamais un flicker
 OFF/ON à 19h : avec les marges par défaut, `[17:55, 19:10]` et `[18:55, 20:10]` se
@@ -340,7 +390,7 @@ deux fois le même `eventId` après un timeout réseau ne crée jamais deux lign
 | `204` | Heartbeat/ACK acceptés | Rien à faire. |
 | `304` | Snapshot inchangé | Réutiliser le cache local tel quel. |
 | `401` | Clé invalide/révoquée | **Ne pas retenter en boucle.** Alerter (heartbeat local visible en façade si possible), attendre une ré-provision manuelle (nouvelle clé via le back-office). |
-| `404` (sur `/ack`) | Commande déjà ACKée/jamais délivrée/expirée | Ne pas retenter — journaliser et continuer. |
+| `404` (sur `/ack`), `COMMAND_NOT_FOUND`/`COMMAND_EXPIRED` | Commande déjà ACKée/jamais délivrée/expirée (§5) | Ne pas retenter — journaliser et continuer. |
 | `422` | Payload invalide (bug client) | Ne pas retenter tel quel — corriger le payload. |
 | `503` | `ACCESS_DEVICE_SYNC_ENABLED=false` côté serveur | Continuer à fonctionner en mode offline avec le dernier cache connu ; retenter périodiquement. |
 | Erreur réseau / timeout | — | Retry avec backoff, voir ci-dessous. Ne jamais bloquer la validation locale d'un code déjà en cache (dossier technique §40). |
@@ -362,7 +412,78 @@ tout ISO 8601 avec offset explicite.
 
 ---
 
-## 11. Ce que ce protocole ne couvre pas (hors Phase 1)
+## 12. Commandes manuelles (back-office → Raspberry)
+
+CDC_APV2_COMMANDES_MANUELLES_RASPBERRY_LOGO. Le pilotage manuel (bouton admin) réutilise
+intégralement le protocole ci-dessus — **aucun second mécanisme, aucune connexion
+entrante vers le Raspberry**. Seule différence avec une commande zone-scopée : elle cible
+directement un `deviceId` (`zoneKey: null` dans le snapshot), pas une zone, puisqu'un seul
+Raspberry pilote toute l'automatisation du club (porte + éclairage).
+
+### Endpoints admin (jamais appelés par le Raspberry)
+
+```http
+POST /api/v1/admin/automation-devices/:deviceId/commands
+Cookie: <session ADMIN>
+Content-Type: application/json
+
+{ "type": "DOOR_OPEN" }
+```
+
+Réservé aux utilisateurs `ADMIN` (plus strict que `STAFF`, utilisé par les commandes
+zone-scopées — porte/éclairage sont sensibles, CDC_APV2_COMMANDES_MANUELLES_RASPBERRY_LOGO
+§12). Contrôles serveur, dans l'ordre, avant toute création :
+
+1. session authentifiée + rôle `ADMIN` (`requireAuth` + `requireRole("ADMIN")`) ;
+2. `deviceId` existe et son statut est `ACTIVE` — sinon `404 DEVICE_NOT_FOUND` ;
+3. le device est en ligne selon `AUTOMATION_DEVICE_OFFLINE_AFTER_SECONDS` (§4) — sinon
+   `409 AUTOMATION_DEVICE_OFFLINE` ;
+4. aucune commande manuelle déjà `PENDING`/`DELIVERED` non expirée pour ce device —
+   sinon `409 COMMAND_ALREADY_PENDING` (anti-double-clic **côté serveur**, jamais fondé
+   sur le seul état du bouton frontend) ;
+5. `type` fait partie de `DOOR_OPEN`/`DOOR_CLOSE`/`LIGHT_ON`/`LIGHT_OFF` — validé par
+   zod avant d'atteindre le service, sinon `422`.
+
+Réponse `201` : la commande créée (`id`, `deviceId`, `zoneKey: null`, `type`, `status:
+"PENDING"`, `requestedBy`, `expiresAt`, ...). **Aucune commande manuelle refusée par ces
+contrôles n'est mise en file "pour plus tard"** — un device hors ligne au moment du clic
+ne verra jamais cette commande, même s'il revient en ligne dans la minute (CDC §5).
+
+```http
+GET /api/v1/admin/automation-commands/:id          → statut d'une commande (polling UI)
+GET /api/v1/admin/automation-devices/:id/commands?limit=20   → historique (les 20 dernières)
+```
+
+Les deux réservés à `STAFF` minimum (lecture, moins sensible que la création).
+
+### Cycle de vie UI (back-office `/admin/automation`)
+
+```text
+clic "Ouvrir" (confirmation demandée uniquement pour DOOR_OPEN)
+  → bouton désactivé immédiatement (anti-double-clic frontend, en plus du serveur)
+  → POST .../commands  → "Envoi..."
+  → poll GET /admin/automation-commands/:id toutes les 1 s, jusqu'à 10 s
+      PENDING/DELIVERED → "Commande reçue par le Raspberry..."
+      SUCCESS           → "Commande exécutée."
+      FAILED            → "Échec de la commande (<result>)"
+      timeout (10 s)    → "Aucune confirmation reçue du Raspberry."
+  → bouton réactivé, historique rafraîchi
+```
+
+Testé en direct (navigateur, dev, 2026-09-10) : device en ligne → clic "Allumer" → bouton
+désactivé + "Envoi..." → commande livrée via un vrai `GET /snapshot` → sans ACK, timeout
+UI à 10 s → "Aucune confirmation reçue du Raspberry.", boutons réactivés, historique
+affiché. Device hors ligne (heartbeat > `AUTOMATION_DEVICE_OFFLINE_AFTER_SECONDS`) →
+boutons désactivés, message "Commandes indisponibles : Raspberry hors ligne."
+
+`TTL` court et dédié (`MANUAL_COMMAND_TTL_SECONDS`, défaut **30 s**, distinct de
+`ACCESS_COMMAND_TTL_MINUTES` utilisé par les commandes zone-scopées) : une commande
+manuelle jamais récupérée par le Raspberry dans les 30 s suivant le clic expire et ne
+s'exécutera jamais tardivement.
+
+---
+
+## 13. Ce que ce protocole ne couvre pas (hors Phase 1)
 
 - Aucun push serveur → Raspberry : le Raspberry n'accepte jamais de connexion entrante
   (dossier technique §36). Tout passe par son propre poll.

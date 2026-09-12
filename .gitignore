@@ -9,3 +9,6 @@ build/
 .DS_Store
 .next/
 next-env.d.ts
+
+# État local du pont Raspberry de test (apps/api/src/scripts/raspberry_bridge.py)
+apps/api/executed_commands.json

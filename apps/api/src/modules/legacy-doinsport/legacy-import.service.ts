@@ -5,6 +5,7 @@ import { decideClientLink } from "./client-dedup.js";
 import { computeDueCents, computeFullyPaid, computeReceivedCents, extractParticipants } from "./booking-participants.js";
 import { normalizeEmail } from "../identity/identity.repository.js";
 import type { LegacyBookingProvider } from "./types.js";
+import type { AccessGrantService } from "../access/access-grant.service.js";
 
 /**
  * Logique d'import Doinsport → V2 (CDC §7.5, §10.3), partagée entre le
@@ -207,4 +208,52 @@ export async function importBookings(
     });
     throw err;
   }
+}
+
+/**
+ * Révocation d'accès Dual Run (gap trouvé le 2026-09-11, jamais couvert avant) :
+ * `BookingsService.cancel`/`BookingsAdminService.cancel` révoquent déjà le
+ * code d'accès quand l'annulation est déclenchée **côté V2** (§36). Mais rien
+ * ne couvrait le sens inverse — une réservation annulée **directement dans
+ * Doinsport** (staff utilisant encore l'ancien back-office pendant le Dual
+ * Run) laissait le `Booking` V2 et son `AccessGrant` actifs indéfiniment,
+ * jusqu'à expiration naturelle du code (`validUntil`).
+ *
+ * Volontairement scoped à la seule révocation du code d'accès, jamais au
+ * statut de la réservation elle-même (paiement/remboursement/notification) :
+ * annuler automatiquement un `Booking` V2 payé sur la seule foi d'un flag
+ * `canceled` côté Doinsport est une décision produit distincte (remboursement
+ * ou non ?), pas quelque chose à décider silencieusement ici. Un opérateur
+ * gardant les deux systèmes désynchronisés sur le statut de réservation le
+ * verra dans les écrans existants ; seul le code physique est désactivé.
+ *
+ * Appelée à chaque réconciliation (`LegacySyncScheduler.runReconciliation`,
+ * après `importBookings` qui vient de rafraîchir `LegacyBooking.canceled`).
+ */
+export async function revokeAccessForCanceledLegacyBookings(prisma: PrismaClient, accessGrantService: AccessGrantService): Promise<number> {
+  const activeGrants = await prisma.accessGrant.findMany({
+    where: { status: { in: ["PENDING", "ACTIVE"] } },
+    select: {
+      bookingId: true,
+      booking: { select: { courtId: true, legacyBookingMapping: { select: { legacyBookingId: true } } } },
+    },
+  });
+
+  const bookingIdsToRevoke = new Set<string>();
+  for (const grant of activeGrants) {
+    const legacyBookingId = grant.booking.legacyBookingMapping?.legacyBookingId;
+    if (!legacyBookingId) continue;
+    const legacyBooking = await prisma.legacyBooking.findUnique({
+      where: { externalId_courtId: { externalId: legacyBookingId, courtId: grant.booking.courtId } },
+      select: { canceled: true },
+    });
+    if (legacyBooking?.canceled) bookingIdsToRevoke.add(grant.bookingId);
+  }
+
+  for (const bookingId of bookingIdsToRevoke) {
+    await accessGrantService.revokeForBooking(bookingId);
+    logger.info({ event: "AccessGrantRevokedFromLegacyCancellation", bookingId }, "code d'accès révoqué : réservation annulée côté Doinsport");
+  }
+
+  return bookingIdsToRevoke.size;
 }

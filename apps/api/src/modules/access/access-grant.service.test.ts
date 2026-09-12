@@ -127,4 +127,36 @@ describe("AccessGrantService", () => {
     // Un grant révoqué ne doit plus être exposé à l'organisateur.
     expect(await service.revealForBooking(booking.id)).toHaveLength(0);
   });
+
+  /**
+   * Demande explicite : marges avant/après configurables par terrain dans
+   * l'interface, plutôt que des variables d'environnement globales pour tout
+   * le club (`ZoneAccessMarginsAdapter`, module `automation`).
+   */
+  describe("marges par terrain (AccessMarginsProvider)", () => {
+    it("uses the global config margins when no marginsProvider is injected (comportement historique)", async () => {
+      const config = buildConfig({ V2_ACCESS_ENABLED: true, ACCESS_ENABLED_BEFORE_MINUTES: 15, ACCESS_ENABLED_AFTER_MINUTES: 15 });
+      const service = new AccessGrantService(new AccessGrantRepository(prisma), new LocalAccessProvider(), config);
+      const booking = await createBookingRow(14);
+
+      await service.provisionOrImportForBooking(booking);
+
+      const grants = await service.revealForBooking(booking.id);
+      expect(grants[0]!.validFrom.getTime()).toBe(booking.startAt.getTime() - 15 * 60_000);
+      expect(grants[0]!.validUntil.getTime()).toBe(booking.endAt.getTime() + 15 * 60_000);
+    });
+
+    it("uses the marginsProvider's per-court override when injected", async () => {
+      const config = buildConfig({ V2_ACCESS_ENABLED: true, ACCESS_ENABLED_BEFORE_MINUTES: 15, ACCESS_ENABLED_AFTER_MINUTES: 15 });
+      const marginsProvider = { getMarginsForCourt: async () => ({ beforeMinutes: 5, afterMinutes: 45 }) };
+      const service = new AccessGrantService(new AccessGrantRepository(prisma), new LocalAccessProvider(), config, marginsProvider);
+      const booking = await createBookingRow(15);
+
+      await service.provisionOrImportForBooking(booking);
+
+      const grants = await service.revealForBooking(booking.id);
+      expect(grants[0]!.validFrom.getTime()).toBe(booking.startAt.getTime() - 5 * 60_000);
+      expect(grants[0]!.validUntil.getTime()).toBe(booking.endAt.getTime() + 45 * 60_000);
+    });
+  });
 });

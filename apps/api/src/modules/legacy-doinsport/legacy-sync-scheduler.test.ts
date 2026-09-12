@@ -6,6 +6,11 @@ import { FakeLegacyProvider } from "./testing/fake-legacy-provider.js";
 import { LegacyDoinsportRepository } from "./legacy-doinsport.repository.js";
 import { LegacySyncScheduler } from "./legacy-sync-scheduler.js";
 import type { DateRange } from "./types.js";
+import { AccessGrantRepository } from "../access/access-grant.repository.js";
+import { AccessGrantService } from "../access/access-grant.service.js";
+import { LocalAccessProvider } from "../access/local-access-provider.js";
+import { encryptAccessCode } from "../access/access-code-crypto.js";
+import { hashPassword } from "../identity/password.js";
 
 /** CDC §15.3 — scheduler de synchro Doinsport (sync fréquente + réconciliation). */
 describe("LegacySyncScheduler", () => {
@@ -54,23 +59,34 @@ describe("LegacySyncScheduler", () => {
 
   /** Double contrôlable : renvoie une réservation fixe, avec un frein optionnel pour tester la garde anti-chevauchement. */
   class ControllableProvider extends FakeLegacyProvider {
-    bookings: { id: string; startAt: string; endAt: string; playgroundIds: string[]; raw?: unknown }[] = [];
+    bookings: { id: string; startAt: string; endAt: string; playgroundIds: string[]; raw?: unknown; canceled?: boolean }[] = [];
     blocker: Promise<void> = Promise.resolve();
 
     override async listBookings(_range: DateRange) {
       await this.blocker;
-      return this.bookings.map((b) => ({ id: b.id, startAt: b.startAt, endAt: b.endAt, canceled: false }));
+      return this.bookings.map((b) => ({ id: b.id, startAt: b.startAt, endAt: b.endAt, canceled: b.canceled ?? false }));
     }
     override async getBooking(id: string) {
       const b = this.bookings.find((x) => x.id === id)!;
-      return { id: b.id, startAt: b.startAt, endAt: b.endAt, canceled: false, comment: null, playgroundIds: b.playgroundIds, accessCodes: [], bookingOwnerClientId: null, raw: b.raw ?? null };
+      return {
+        id: b.id,
+        startAt: b.startAt,
+        endAt: b.endAt,
+        canceled: b.canceled ?? false,
+        comment: null,
+        playgroundIds: b.playgroundIds,
+        accessCodes: [],
+        bookingOwnerClientId: null,
+        raw: b.raw ?? null,
+      };
     }
   }
 
   function buildScheduler(provider: ControllableProvider) {
     const repo = new LegacyDoinsportRepository(prisma);
     const config = buildConfig({});
-    return { scheduler: new LegacySyncScheduler(config, prisma, provider, repo), repo };
+    const accessGrantService = new AccessGrantService(new AccessGrantRepository(prisma), new LocalAccessProvider(), config);
+    return { scheduler: new LegacySyncScheduler(config, prisma, provider, repo, accessGrantService), repo };
   }
 
   it("runFastSync importe les réservations proches et trace un LegacySyncRun BOOKINGS", async () => {
@@ -154,11 +170,69 @@ describe("LegacySyncScheduler", () => {
     expect(runs).toHaveLength(1);
   });
 
+  /**
+   * Gap trouvé le 2026-09-11 : une réservation Dual Run annulée directement
+   * côté Doinsport (staff utilisant encore l'ancien back-office) laissait
+   * jusque-là le code d'accès V2 actif indéfiniment — seul le sens
+   * V2 -> Doinsport (BookingsService.cancel) révoquait le code.
+   */
+  it("révoque le code d'accès d'une réservation Dual Run annulée directement côté Doinsport", async () => {
+    const { court, legacyPlaygroundId } = await createCourtWithMapping();
+    const config = buildConfig({});
+    const accessGrantRepo = new AccessGrantRepository(prisma);
+    const accessGrantService = new AccessGrantService(accessGrantRepo, new LocalAccessProvider(), config);
+
+    const user = await prisma.user.create({
+      data: { email: `scheduler-revoke-${Date.now()}@example.com`, passwordHash: await hashPassword("MotDePasseSolide123"), firstName: "T", lastName: "U", status: "ACTIVE" },
+    });
+    const startAt = new Date(Date.now() + 24 * 3600_000);
+    const booking = await prisma.booking.create({
+      data: {
+        organizer: { connect: { id: user.id } },
+        court: { connect: { id: court.id } },
+        startAt,
+        endAt: new Date(startAt.getTime() + 3600_000),
+        durationMinutes: 60,
+        bookingBasePriceCents: 4800,
+        priceTotalCents: 4800,
+        status: "CONFIRMED",
+      },
+    });
+    await prisma.legacyBookingMapping.create({
+      data: { bookingId: booking.id, legacyBookingId: "legacy-dual-run-1", correlationMarker: `marker-${Date.now()}`, syncStatus: "CONFIRMED" },
+    });
+    const { ciphertext, iv } = encryptAccessCode(config, "4242#");
+    const grant = await accessGrantRepo.create({
+      booking: { connect: { id: booking.id } },
+      codeCiphertext: ciphertext,
+      codeIv: iv,
+      origin: "LEGACY_IMPORTED",
+      scope: court.id,
+      status: "ACTIVE",
+      validFrom: startAt,
+      validUntil: new Date(startAt.getTime() + 3600_000),
+    });
+
+    const provider = new ControllableProvider();
+    provider.bookings = [
+      { id: "legacy-dual-run-1", startAt: startAt.toISOString(), endAt: new Date(startAt.getTime() + 3600_000).toISOString(), playgroundIds: [legacyPlaygroundId], canceled: true },
+    ];
+    const repo = new LegacyDoinsportRepository(prisma);
+    const scheduler = new LegacySyncScheduler(config, prisma, provider, repo, accessGrantService);
+
+    await scheduler.runReconciliation();
+
+    const reloaded = await accessGrantRepo.findById(grant.id);
+    expect(reloaded!.status).toBe("REVOKED");
+    expect(reloaded!.revokedAt).not.toBeNull();
+  });
+
   it("ne démarre aucun minuteur quand la synchro est désactivée en configuration", () => {
     const provider = new ControllableProvider();
     const repo = new LegacyDoinsportRepository(prisma);
     const config = buildConfig({ LEGACY_SYNC_ENABLED: false });
-    const scheduler = new LegacySyncScheduler(config, prisma, provider, repo);
+    const accessGrantService = new AccessGrantService(new AccessGrantRepository(prisma), new LocalAccessProvider(), config);
+    const scheduler = new LegacySyncScheduler(config, prisma, provider, repo, accessGrantService);
 
     expect(() => scheduler.start()).not.toThrow();
     expect(() => scheduler.stop()).not.toThrow();
@@ -173,7 +247,8 @@ describe("LegacySyncScheduler", () => {
       DOINSPORT_CLUB_PASSWORD: undefined,
       DOINSPORT_CLUB_ID: undefined,
     });
-    const scheduler = new LegacySyncScheduler(config, prisma, provider, repo);
+    const accessGrantService = new AccessGrantService(new AccessGrantRepository(prisma), new LocalAccessProvider(), config);
+    const scheduler = new LegacySyncScheduler(config, prisma, provider, repo, accessGrantService);
 
     expect(() => scheduler.start()).not.toThrow();
     scheduler.stop();

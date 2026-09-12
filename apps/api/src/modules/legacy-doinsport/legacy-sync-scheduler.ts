@@ -3,7 +3,8 @@ import type { AppConfig } from "@ardenne/config";
 import { logger } from "@ardenne/shared";
 import type { LegacyDoinsportRepository } from "./legacy-doinsport.repository.js";
 import type { LegacyBookingProvider } from "./types.js";
-import { importClients, importBookings } from "./legacy-import.service.js";
+import { importClients, importBookings, revokeAccessForCanceledLegacyBookings } from "./legacy-import.service.js";
+import type { AccessGrantService } from "../access/access-grant.service.js";
 
 /**
  * CDC §15.3 — deux niveaux de synchro Doinsport → V2 tournant en continu,
@@ -33,6 +34,7 @@ export class LegacySyncScheduler {
     private readonly prisma: PrismaClient,
     private readonly adapter: LegacyBookingProvider,
     private readonly repo: LegacyDoinsportRepository,
+    private readonly accessGrantService: AccessGrantService,
   ) {}
 
   start(): void {
@@ -97,6 +99,9 @@ export class LegacySyncScheduler {
       const fromISO = new Date(Date.now() - 24 * 3600_000).toISOString();
       const toISO = new Date(Date.now() + 365 * 24 * 3600_000).toISOString();
       await importBookings(this.adapter, this.repo, this.prisma, fromISO, toISO);
+      // Gap trouvé le 2026-09-11 : une annulation faite directement dans
+      // Doinsport (pas via V2) ne révoquait jamais le code d'accès associé.
+      await revokeAccessForCanceledLegacyBookings(this.prisma, this.accessGrantService);
     } catch (err) {
       logger.error({ event: "LegacyReconciliationFailed", err }, "échec de la réconciliation Doinsport");
     } finally {

@@ -8,6 +8,11 @@ import type { AutomationDeviceRepository } from "./automation-device.repository.
 import type { ZoneRepository } from "./zone.repository.js";
 import type { LightScheduleRepository } from "./light-schedule.repository.js";
 import { mergeLightIntervals } from "./light-interval-merger.js";
+import type { StaffAccessCodeService } from "./staff-access-code.service.js";
+
+export type ManualCommandType = "DOOR_OPEN" | "DOOR_CLOSE" | "LIGHT_ON" | "LIGHT_OFF";
+/** Vocabulaire complet accepté par `AccessCommand.type` — identique aux commandes manuelles pour l'instant (aucune commande automatisée n'existe encore réellement). */
+export type CommandType = ManualCommandType;
 
 export interface RegisterDeviceInput {
   name: string;
@@ -35,7 +40,7 @@ interface SnapshotBody {
   zones: Array<{ key: string; type: string; label: string; courtId: string | null }>;
   grants: Array<{ scope: string; code: string; origin: string; validFrom: string; validUntil: string }>;
   lightIntervals: Array<{ zoneKey: string; startsAt: string; endsAt: string }>;
-  commands: Array<{ id: string; zoneKey: string; type: string }>;
+  commands: Array<{ id: string; zoneKey: string | null; type: string; createdAt: string; expiresAt: string }>;
 }
 
 export interface SnapshotResult {
@@ -44,15 +49,30 @@ export interface SnapshotResult {
   body?: SnapshotBody;
 }
 
+export interface CommandPublicView {
+  id: string;
+  deviceId: string | null;
+  zoneKey: string | null;
+  type: string;
+  status: string;
+  requestedBy: string | null;
+  result: string | null;
+  createdAt: Date;
+  deliveredAt: Date | null;
+  ackedAt: Date | null;
+  expiresAt: Date;
+}
+
 const DEFAULT_SNAPSHOT_WINDOW_BEFORE_HOURS = 2;
 const DEFAULT_SNAPSHOT_WINDOW_AFTER_HOURS = 48;
 
 /**
- * Phase 1 (CDC automatisation, rollout progressif) : "données uniquement —
- * grants, zones, snapshot, aucune action physique". Ce service ne pilote
- * jamais de matériel — il expose au Raspberry ce dont il a besoin pour
- * décider localement (dossier technique §40 : validation locale, jamais
- * d'appel serveur au moment de la saisie du code).
+ * Phase 1 (CDC automatisation, rollout progressif) + commandes manuelles
+ * (CDC_APV2_COMMANDES_MANUELLES_RASPBERRY_LOGO). Ce service ne pilote jamais
+ * de matériel — il expose au Raspberry ce dont il a besoin pour décider/agir
+ * localement (dossier technique §40 : validation locale, jamais d'appel
+ * serveur au moment de la saisie du code ; §36/§37 : aucune adresse Modbus
+ * ni mapping LOGO! ne transite jamais par AP V2).
  */
 export class AutomationService {
   constructor(
@@ -60,6 +80,7 @@ export class AutomationService {
     private readonly zoneRepo: ZoneRepository,
     private readonly grantRepo: AccessGrantRepository,
     private readonly lightScheduleRepo: LightScheduleRepository,
+    private readonly staffAccessCodeService: StaffAccessCodeService,
     private readonly config: AppConfig,
   ) {}
 
@@ -85,26 +106,66 @@ export class AutomationService {
     return this.deviceRepo.listActive();
   }
 
+  /**
+   * Seuil unique en ligne/hors ligne (CDC_APV2_COMMANDES_MANUELLES_RASPBERRY_LOGO
+   * §4/§5) : sert à la fois au badge admin et au refus des commandes
+   * manuelles — jamais deux définitions divergentes de "en ligne".
+   */
   isOffline(lastSeenAt: Date | null): boolean {
     if (!lastSeenAt) return true;
-    return Date.now() - lastSeenAt.getTime() > this.config.ACCESS_DEVICE_OFFLINE_THRESHOLD_MINUTES * 60_000;
+    return Date.now() - lastSeenAt.getTime() > this.config.AUTOMATION_DEVICE_OFFLINE_AFTER_SECONDS * 1000;
   }
 
   async listZones() {
     return this.zoneRepo.listActive();
   }
 
-  async createZone(input: { key: string; type: "DOOR" | "LIGHT" | "GENERIC"; label: string; courtId?: string }) {
+  async createZone(input: {
+    key: string;
+    type: "DOOR" | "LIGHT" | "GENERIC";
+    label: string;
+    courtId?: string;
+    doorBeforeMinutes?: number;
+    doorAfterMinutes?: number;
+    lightBeforeMinutes?: number;
+    lightAfterMinutes?: number;
+  }) {
     return this.zoneRepo.create({
       key: input.key,
       type: input.type,
       label: input.label,
       court: input.courtId ? { connect: { id: input.courtId } } : undefined,
+      doorBeforeMinutes: input.doorBeforeMinutes,
+      doorAfterMinutes: input.doorAfterMinutes,
+      lightBeforeMinutes: input.lightBeforeMinutes,
+      lightAfterMinutes: input.lightAfterMinutes,
     });
   }
 
-  /** Commande MVP explicitement listée au CDC — jamais de commande bas niveau. */
-  async queueCommand(zoneKey: string, type: "OPEN_DOOR_PULSE" | "LIGHT_OVERRIDE_ON" | "LIGHT_OVERRIDE_OFF" | "CLEAR_LIGHT_OVERRIDE", requestedBy: string) {
+  /**
+   * Édite les marges avant/après d'une zone existante (CDC : "configurer
+   * dans l'interface X minutes avant/après par terrain", porte et éclairage
+   * séparément). `undefined` = ne touche pas le champ ; `null` explicite =
+   * revient à la marge globale.
+   */
+  async updateZoneMargins(
+    zoneId: string,
+    input: { doorBeforeMinutes?: number | null; doorAfterMinutes?: number | null; lightBeforeMinutes?: number | null; lightAfterMinutes?: number | null },
+  ) {
+    const zone = await this.zoneRepo.findById(zoneId);
+    if (!zone) {
+      throw new AppError(ErrorCodes.NOT_FOUND, "Zone inconnue.", 404);
+    }
+    return this.zoneRepo.update(zoneId, {
+      ...(input.doorBeforeMinutes !== undefined && { doorBeforeMinutes: input.doorBeforeMinutes }),
+      ...(input.doorAfterMinutes !== undefined && { doorAfterMinutes: input.doorAfterMinutes }),
+      ...(input.lightBeforeMinutes !== undefined && { lightBeforeMinutes: input.lightBeforeMinutes }),
+      ...(input.lightAfterMinutes !== undefined && { lightAfterMinutes: input.lightAfterMinutes }),
+    });
+  }
+
+  /** Commande MVP zone-scopée (future automatisation planifiée) — jamais de commande bas niveau. */
+  async queueCommand(zoneKey: string, type: CommandType, requestedBy: string) {
     const zone = await this.zoneRepo.findByKey(zoneKey);
     if (!zone) {
       throw new AppError(ErrorCodes.NOT_FOUND, "Zone inconnue.", 404);
@@ -121,19 +182,98 @@ export class AutomationService {
   }
 
   /**
+   * Commande manuelle depuis le back-office (CDC_APV2_COMMANDES_MANUELLES_RASPBERRY_LOGO
+   * §3/§5/§11/§21) : cible directement un device (pas de zone), refusée si le
+   * device est hors ligne ou déjà porteur d'une commande manuelle en vol
+   * (anti-double-clic côté serveur — ne jamais faire confiance au seul bouton
+   * frontend désactivé), expire rapidement (`MANUAL_COMMAND_TTL_SECONDS`,
+   * 30 s par défaut) pour ne jamais s'exécuter tardivement après un retour en
+   * ligne du Raspberry.
+   */
+  async queueManualCommand(deviceId: string, type: ManualCommandType, requestedBy: string): Promise<CommandPublicView> {
+    const device = await this.deviceRepo.findById(deviceId);
+    if (!device || device.status !== "ACTIVE") {
+      throw new AppError(ErrorCodes.DEVICE_NOT_FOUND, "Dispositif d'automatisation introuvable.", 404);
+    }
+    if (this.isOffline(device.lastSeenAt)) {
+      throw new AppError(ErrorCodes.AUTOMATION_DEVICE_OFFLINE, "Commandes indisponibles : Raspberry hors ligne.", 409);
+    }
+    const inFlight = await this.deviceRepo.findActivePendingCommandForDevice(deviceId);
+    if (inFlight) {
+      throw new AppError(ErrorCodes.COMMAND_ALREADY_PENDING, "Une commande manuelle est déjà en cours pour ce dispositif.", 409);
+    }
+
+    const expiresAt = new Date(Date.now() + this.config.MANUAL_COMMAND_TTL_SECONDS * 1000);
+    const command = await this.deviceRepo.createCommand({
+      device: { connect: { id: deviceId } },
+      type,
+      requestedBy,
+      expiresAt,
+    });
+    logger.info({ event: "AutomationManualCommandQueued", deviceId, type, commandId: command.id, requestedBy }, "commande manuelle mise en file");
+    return this.toPublicView(command, null);
+  }
+
+  async getCommand(commandId: string): Promise<CommandPublicView> {
+    const command = await this.deviceRepo.findCommandById(commandId);
+    if (!command) {
+      throw new AppError(ErrorCodes.COMMAND_NOT_FOUND, "Commande inconnue.", 404);
+    }
+    const zoneKey = command.zoneId ? await this.zoneKeyFor(command.zoneId) : null;
+    return this.toPublicView(command, zoneKey);
+  }
+
+  async listRecentCommandsForDevice(deviceId: string, limit: number): Promise<CommandPublicView[]> {
+    const commands = await this.deviceRepo.findRecentCommandsForDevice(deviceId, limit);
+    const zones = await this.zoneRepo.listActive();
+    const zoneById = new Map(zones.map((z) => [z.id, z.key]));
+    return commands.map((c) => this.toPublicView(c, c.zoneId ? (zoneById.get(c.zoneId) ?? c.zoneId) : null));
+  }
+
+  private async zoneKeyFor(zoneId: string): Promise<string> {
+    const zones = await this.zoneRepo.listActive();
+    return zones.find((z) => z.id === zoneId)?.key ?? zoneId;
+  }
+
+  private toPublicView(
+    command: { id: string; deviceId: string | null; zoneId: string | null; type: string; status: string; requestedBy: string | null; result: string | null; createdAt: Date; deliveredAt: Date | null; ackedAt: Date | null; expiresAt: Date },
+    zoneKey: string | null,
+  ): CommandPublicView {
+    return {
+      id: command.id,
+      deviceId: command.deviceId,
+      zoneKey,
+      type: command.type,
+      status: command.status,
+      requestedBy: command.requestedBy,
+      result: command.result,
+      createdAt: command.createdAt,
+      deliveredAt: command.deliveredAt,
+      ackedAt: command.ackedAt,
+      expiresAt: command.expiresAt,
+    };
+  }
+
+  /**
    * ACK explicite du Raspberry (RASPBERRY_PROTOCOL.md §"Fiabilité des
    * commandes") — seule transition qui retire une commande du snapshot. Une
    * commande jamais ACKée reste redélivrée à chaque snapshot jusqu'à
    * expiration : le Raspberry garantit de son côté qu'un même `commandId`
    * n'est exécuté physiquement qu'une fois (idempotence locale), le serveur
-   * ne le garantit jamais lui-même.
+   * ne le garantit jamais lui-même. `status`/`result` distinguent le cycle
+   * de la commande (traitée ou non) de l'issue physique réelle (CDC
+   * §15 : un ACK "SUCCESS" ne prouve jamais un état physique, seulement que
+   * le Raspberry a correctement transmis l'ordre au LOGO!).
    */
-  async ackCommand(commandId: string, deviceId: string): Promise<void> {
-    const acked = await this.deviceRepo.ackCommand(commandId, deviceId);
+  async ackCommand(commandId: string, deviceId: string, status: "SUCCESS" | "FAILED", result: string | null): Promise<void> {
+    const acked = await this.deviceRepo.ackCommand(commandId, deviceId, status, result);
     if (!acked) {
-      throw new AppError(ErrorCodes.NOT_FOUND, "Commande inconnue ou déjà acquittée/expirée.", 404);
+      const existing = await this.deviceRepo.findCommandById(commandId);
+      if (!existing) throw new AppError(ErrorCodes.COMMAND_NOT_FOUND, "Commande inconnue.", 404);
+      if (existing.status === "EXPIRED") throw new AppError(ErrorCodes.COMMAND_EXPIRED, "Commande expirée avant réception de l'ACK.", 404);
+      throw new AppError(ErrorCodes.COMMAND_NOT_FOUND, "Commande déjà acquittée ou jamais livrée.", 404);
     }
-    logger.info({ event: "AutomationCommandAcked", commandId, deviceId }, "commande d'automatisation acquittée");
+    logger.info({ event: "AutomationCommandAcked", commandId, deviceId, status }, "commande d'automatisation acquittée");
   }
 
   async recordHeartbeat(deviceId: string, revision: string | undefined, input: HeartbeatInput) {
@@ -162,6 +302,10 @@ export class AutomationService {
    * `scope` quand Legacy l'a fourni). Ignorer cette deuxième correspondance
    * ferait silencieusement disparaître tous les codes Legacy importés du
    * snapshot alors qu'ils existent bien en base.
+   *
+   * Les commandes manuelles ciblent directement `deviceId` (pas de zone) —
+   * `findDeliverableCommands` renvoie donc l'union des commandes de zone du
+   * device (`zoneId` parmi les zones actives) et de ses commandes device-only.
    */
   async buildSnapshot(deviceId: string, ifNoneMatch: string | undefined): Promise<SnapshotResult> {
     await this.deviceRepo.expireStaleCommands();
@@ -183,9 +327,11 @@ export class AutomationService {
     for (const zone of zones) {
       if (zone.type !== "LIGHT" || !zone.courtId) continue;
       const windows = await this.lightScheduleRepo.findOccupiedWindowsForCourt(zone.courtId, from, to);
+      const beforeMinutes = zone.lightBeforeMinutes ?? this.config.LIGHT_ENABLED_BEFORE_MINUTES;
+      const afterMinutes = zone.lightAfterMinutes ?? this.config.LIGHT_ENABLED_AFTER_MINUTES;
       const padded = windows.map((w) => ({
-        start: new Date(w.start.getTime() - this.config.LIGHT_ENABLED_BEFORE_MINUTES * 60_000),
-        end: new Date(w.end.getTime() + this.config.LIGHT_ENABLED_AFTER_MINUTES * 60_000),
+        start: new Date(w.start.getTime() - beforeMinutes * 60_000),
+        end: new Date(w.end.getTime() + afterMinutes * 60_000),
       }));
       for (const interval of mergeLightIntervals(padded)) {
         lightIntervals.push({ zoneKey: zone.key, ...interval });
@@ -193,18 +339,35 @@ export class AutomationService {
     }
 
     const zoneIds = zones.map((z) => z.id);
-    const deliverableCommands = zoneIds.length > 0 ? await this.deviceRepo.findDeliverableCommands(zoneIds) : [];
+    const deliverableCommands = await this.deviceRepo.findDeliverableCommands(deviceId, zoneIds);
     const zoneById = new Map(zones.map((z) => [z.id, z]));
 
+    const staffGrants = await this.staffAccessCodeService.findActiveGrantsForZoneIds(zoneIds);
+
     const zonesOut = zones.map((z) => ({ key: z.key, type: z.type, label: z.label, courtId: z.courtId }));
-    const grantsOut = grants.map((g) => ({
-      scope: g.scope,
-      code: decryptAccessCode(this.config, g.codeCiphertext, g.codeIv),
-      origin: g.origin,
-      validFrom: g.validFrom.toISOString(),
-      validUntil: g.validUntil.toISOString(),
+    const grantsOut = [
+      ...grants.map((g) => ({
+        scope: g.scope,
+        code: decryptAccessCode(this.config, g.codeCiphertext, g.codeIv),
+        origin: g.origin,
+        validFrom: g.validFrom.toISOString(),
+        validUntil: g.validUntil.toISOString(),
+      })),
+      ...staffGrants.map((g) => ({
+        scope: g.scope,
+        code: g.code,
+        origin: "STAFF_MASTER",
+        validFrom: g.validFrom.toISOString(),
+        validUntil: g.validUntil.toISOString(),
+      })),
+    ];
+    const commandsOut = deliverableCommands.map((c) => ({
+      id: c.id,
+      zoneKey: c.zoneId ? (zoneById.get(c.zoneId)?.key ?? c.zoneId) : null,
+      type: c.type,
+      createdAt: c.createdAt.toISOString(),
+      expiresAt: c.expiresAt.toISOString(),
     }));
-    const commandsOut = deliverableCommands.map((c) => ({ id: c.id, zoneKey: zoneById.get(c.zoneId)?.key ?? c.zoneId, type: c.type }));
 
     const revision = createHash("sha256")
       .update(JSON.stringify({ zones: zonesOut, grants: grantsOut, lightIntervals, commands: commandsOut }))

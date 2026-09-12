@@ -6,6 +6,9 @@ import { createApp } from "./app.js";
 import { LegacyDoinsportAdapter } from "./modules/legacy-doinsport/legacy-doinsport.adapter.js";
 import { LegacyDoinsportRepository } from "./modules/legacy-doinsport/legacy-doinsport.repository.js";
 import { LegacySyncScheduler } from "./modules/legacy-doinsport/legacy-sync-scheduler.js";
+import { AccessGrantRepository } from "./modules/access/access-grant.repository.js";
+import { AccessGrantService } from "./modules/access/access-grant.service.js";
+import { LocalAccessProvider } from "./modules/access/local-access-provider.js";
 
 const config = loadConfig();
 const app = createApp({ prisma, config });
@@ -18,7 +21,8 @@ const server = app.listen(config.API_PORT, () => {
 // test via supertest) — les tests d'intégration ne doivent jamais déclencher
 // d'appel réseau réel vers Doinsport en arrière-plan.
 const legacyRepo = new LegacyDoinsportRepository(prisma);
-const legacySyncScheduler = new LegacySyncScheduler(config, prisma, new LegacyDoinsportAdapter(config, legacyRepo), legacyRepo);
+const accessGrantServiceForScheduler = new AccessGrantService(new AccessGrantRepository(prisma), new LocalAccessProvider(), config);
+const legacySyncScheduler = new LegacySyncScheduler(config, prisma, new LegacyDoinsportAdapter(config, legacyRepo), legacyRepo, accessGrantServiceForScheduler);
 legacySyncScheduler.start();
 
 async function shutdown(signal: string) {

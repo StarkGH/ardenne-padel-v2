@@ -4,6 +4,7 @@ import type { Booking } from "@prisma/client";
 import { decryptAccessCode, encryptAccessCode, generateRandomAccessCode } from "./access-code-crypto.js";
 import type { AccessProvider } from "./access-provider.js";
 import type { AccessGrantRepository } from "./access-grant.repository.js";
+import type { AccessMarginsProvider } from "./access-margins-provider.js";
 
 export interface LegacyAccessCodeInput {
   code?: string;
@@ -24,6 +25,8 @@ export class AccessGrantService {
     private readonly repo: AccessGrantRepository,
     private readonly provider: AccessProvider,
     private readonly config: AppConfig,
+    /** Optionnel : sans lui, retombe toujours sur les marges globales (comportement historique, préservé pour les appelants/tests qui ne l'injectent pas). */
+    private readonly marginsProvider?: AccessMarginsProvider,
   ) {}
 
   /**
@@ -69,8 +72,11 @@ export class AccessGrantService {
 
   private async generateAndProvision(booking: Booking): Promise<void> {
     const scope = booking.courtId;
-    const validFrom = new Date(booking.startAt.getTime() - this.config.ACCESS_ENABLED_BEFORE_MINUTES * 60_000);
-    const validUntil = new Date(booking.endAt.getTime() + this.config.ACCESS_ENABLED_AFTER_MINUTES * 60_000);
+    const margins = this.marginsProvider
+      ? await this.marginsProvider.getMarginsForCourt(booking.courtId)
+      : { beforeMinutes: this.config.ACCESS_ENABLED_BEFORE_MINUTES, afterMinutes: this.config.ACCESS_ENABLED_AFTER_MINUTES };
+    const validFrom = new Date(booking.startAt.getTime() - margins.beforeMinutes * 60_000);
+    const validUntil = new Date(booking.endAt.getTime() + margins.afterMinutes * 60_000);
 
     let code: string | undefined;
     for (let attempt = 0; attempt < MAX_CODE_GENERATION_ATTEMPTS; attempt++) {

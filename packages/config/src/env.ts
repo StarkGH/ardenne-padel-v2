@@ -88,8 +88,12 @@ const envSchema = z.object({
 
   // Automatisation physique (Raspberry) — Phase 1 : données uniquement.
   ACCESS_DEVICE_SYNC_ENABLED: boolFromString.default("false"),
-  ACCESS_DEVICE_OFFLINE_THRESHOLD_MINUTES: z.coerce.number().int().positive().default(5),
+  // Seuil unique en ligne/hors ligne (badge admin ET gate des commandes manuelles,
+  // CDC_APV2_COMMANDES_MANUELLES_RASPBERRY_LOGO §4/§5) — cohérent avec la fréquence
+  // réelle des heartbeats (15-30 s recommandé côté Raspberry, RASPBERRY_PROTOCOL.md).
+  AUTOMATION_DEVICE_OFFLINE_AFTER_SECONDS: z.coerce.number().int().positive().default(30),
   ACCESS_COMMAND_TTL_MINUTES: z.coerce.number().int().positive().default(10),
+  MANUAL_COMMAND_TTL_SECONDS: z.coerce.number().int().positive().default(30),
   LIGHT_ENABLED_BEFORE_MINUTES: z.coerce.number().int().nonnegative().default(5),
   LIGHT_ENABLED_AFTER_MINUTES: z.coerce.number().int().nonnegative().default(10),
 

@@ -14,4 +14,12 @@ export class ZoneRepository {
   listActive() {
     return this.db.zone.findMany({ where: { active: true }, orderBy: { key: "asc" }, include: { court: true } });
   }
+
+  findById(id: string) {
+    return this.db.zone.findUnique({ where: { id } });
+  }
+
+  update(id: string, data: Prisma.ZoneUpdateInput) {
+    return this.db.zone.update({ where: { id }, data });
+  }
 }

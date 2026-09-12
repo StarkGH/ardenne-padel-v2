@@ -20,6 +20,8 @@ export async function resetIntegrationTestData(prisma: PrismaClient): Promise<vo
   await prisma.accessCommand.deleteMany(); // référence zone/accessDevice -> avant zone/accessDevice
   await prisma.accessDeviceEvent.deleteMany(); // référence accessDevice -> avant accessDevice
   await prisma.accessDevice.deleteMany();
+  await prisma.staffAccessCodeZone.deleteMany(); // référence zone/staffAccessCode -> avant zone/staffAccessCode
+  await prisma.staffAccessCode.deleteMany();
   await prisma.zone.deleteMany();
   await prisma.kioskCheckoutSession.deleteMany(); // référence kioskDevice -> avant kioskDevice
   await prisma.kioskDevice.deleteMany();

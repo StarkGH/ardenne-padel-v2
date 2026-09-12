@@ -11,6 +11,10 @@ export class AutomationDeviceRepository {
     return this.db.accessDevice.findUnique({ where: { deviceKeyHash } });
   }
 
+  findById(id: string) {
+    return this.db.accessDevice.findUnique({ where: { id } });
+  }
+
   listActive() {
     return this.db.accessDevice.findMany({ where: { status: "ACTIVE" }, orderBy: { name: "asc" } });
   }
@@ -72,12 +76,40 @@ export class AutomationDeviceRepository {
    * DELIVERED n'est jamais un état terminal. Ne mute jamais rien ici : la
    * transition PENDING -> DELIVERED n'a lieu que lorsque le contenu est
    * effectivement renvoyé (voir `markDelivered`), jamais sur un simple 304.
+   *
+   * Deux voies de ciblage coexistent (CDC_APV2_COMMANDES_MANUELLES_RASPBERRY_LOGO
+   * §2/§11) : une commande automatisée (future) cible une zone (`zoneId` dans
+   * `zoneIds`) ; une commande manuelle depuis le back-office cible directement
+   * `deviceId` (`zoneId` null) — un seul Raspberry pilotant tout le club.
    */
-  findDeliverableCommands(zoneIds: string[]) {
+  findDeliverableCommands(deviceId: string, zoneIds: string[]) {
     return this.db.accessCommand.findMany({
-      where: { status: { in: ["PENDING", "DELIVERED"] }, zoneId: { in: zoneIds }, expiresAt: { gt: new Date() } },
+      where: {
+        status: { in: ["PENDING", "DELIVERED"] },
+        expiresAt: { gt: new Date() },
+        OR: [{ deviceId }, { zoneId: { in: zoneIds } }],
+      },
       orderBy: { createdAt: "asc" },
     });
+  }
+
+  /** Anti-double-clic backend (CDC §21) : une seule commande manuelle en vol par device à la fois. */
+  findActivePendingCommandForDevice(deviceId: string) {
+    return this.db.accessCommand.findFirst({
+      where: { deviceId, zoneId: null, status: { in: ["PENDING", "DELIVERED"] }, expiresAt: { gt: new Date() } },
+    });
+  }
+
+  findRecentCommandsForDevice(deviceId: string, limit: number) {
+    return this.db.accessCommand.findMany({
+      where: { deviceId },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+    });
+  }
+
+  findCommandById(id: string) {
+    return this.db.accessCommand.findUnique({ where: { id } });
   }
 
   /** Transition PENDING -> DELIVERED uniquement (idempotente : ne touche pas celles déjà DELIVERED, donc `deliveredAt` reste stable entre deux livraisons successives). */
@@ -90,12 +122,12 @@ export class AutomationDeviceRepository {
   }
 
   /** ACK explicite du Raspberry — seule transition qui retire définitivement une commande du snapshot. */
-  async ackCommand(id: string, deviceId: string): Promise<boolean> {
-    const result = await this.db.accessCommand.updateMany({
+  async ackCommand(id: string, deviceId: string, status: "SUCCESS" | "FAILED", result: string | null): Promise<boolean> {
+    const updated = await this.db.accessCommand.updateMany({
       where: { id, status: "DELIVERED" },
-      data: { status: "SUCCESS", ackedAt: new Date(), deviceId },
+      data: { status, ackedAt: new Date(), deviceId, result },
     });
-    return result.count === 1;
+    return updated.count === 1;
   }
 
   /** Fallback si aucun ACK n'arrive avant `expiresAt` (RASPBERRY_PROTOCOL.md) — nettoyage best-effort à chaque snapshot. */

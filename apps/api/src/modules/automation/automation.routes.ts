@@ -11,15 +11,39 @@ const registerDeviceSchema = z.object({
   name: z.string().min(1).max(100),
 });
 
+const marginMinutesSchema = z.coerce.number().int().min(0).max(1440);
+
 const createZoneSchema = z.object({
   key: z.string().min(1).max(100),
   type: z.enum(["DOOR", "LIGHT", "GENERIC"]),
   label: z.string().min(1).max(150),
   courtId: z.string().uuid().optional(),
+  doorBeforeMinutes: marginMinutesSchema.optional(),
+  doorAfterMinutes: marginMinutesSchema.optional(),
+  lightBeforeMinutes: marginMinutesSchema.optional(),
+  lightAfterMinutes: marginMinutesSchema.optional(),
 });
 
+const updateZoneMarginsSchema = z.object({
+  doorBeforeMinutes: marginMinutesSchema.nullable().optional(),
+  doorAfterMinutes: marginMinutesSchema.nullable().optional(),
+  lightBeforeMinutes: marginMinutesSchema.nullable().optional(),
+  lightAfterMinutes: marginMinutesSchema.nullable().optional(),
+});
+
+const commandTypeSchema = z.enum(["DOOR_OPEN", "DOOR_CLOSE", "LIGHT_ON", "LIGHT_OFF"]);
+
 const queueCommandSchema = z.object({
-  type: z.enum(["OPEN_DOOR_PULSE", "LIGHT_OVERRIDE_ON", "LIGHT_OVERRIDE_OFF", "CLEAR_LIGHT_OVERRIDE"]),
+  type: commandTypeSchema,
+});
+
+const queueManualCommandSchema = z.object({
+  type: commandTypeSchema,
+});
+
+const ackSchema = z.object({
+  status: z.enum(["SUCCESS", "FAILED"]).default("SUCCESS"),
+  error: z.string().max(200).optional(),
 });
 
 const heartbeatSchema = z.object({
@@ -116,7 +140,20 @@ export function createAutomationRouter(service: AutomationService, config: AppCo
   router.get("/admin/automation-zones", requireAuth, requireRole("STAFF"), async (_req, res, next) => {
     try {
       const zones = await service.listZones();
-      res.status(200).json({ data: zones.map((z) => ({ id: z.id, key: z.key, type: z.type, label: z.label, courtId: z.courtId, courtName: z.court?.name ?? null })) });
+      res.status(200).json({
+        data: zones.map((z) => ({
+          id: z.id,
+          key: z.key,
+          type: z.type,
+          label: z.label,
+          courtId: z.courtId,
+          courtName: z.court?.name ?? null,
+          doorBeforeMinutes: z.doorBeforeMinutes,
+          doorAfterMinutes: z.doorAfterMinutes,
+          lightBeforeMinutes: z.lightBeforeMinutes,
+          lightAfterMinutes: z.lightAfterMinutes,
+        })),
+      });
     } catch (err) {
       next(err);
     }
@@ -137,6 +174,23 @@ export function createAutomationRouter(service: AutomationService, config: AppCo
     }
   });
 
+  router.patch("/admin/automation-zones/:id", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
+    try {
+      const parsed = updateZoneMarginsSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError(ErrorCodes.VALIDATION_FAILED, "Paramètres invalides.", 422, {
+          issues: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })),
+        });
+      }
+      const zone = await service.updateZoneMargins(req.params.id!, parsed.data);
+      res.status(200).json({
+        data: { id: zone.id, doorBeforeMinutes: zone.doorBeforeMinutes, doorAfterMinutes: zone.doorAfterMinutes, lightBeforeMinutes: zone.lightBeforeMinutes, lightAfterMinutes: zone.lightAfterMinutes },
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.post("/admin/automation-zones/:key/commands", requireAuth, requireRole("STAFF"), async (req, res, next) => {
     try {
       const parsed = queueCommandSchema.safeParse(req.body);
@@ -148,6 +202,44 @@ export function createAutomationRouter(service: AutomationService, config: AppCo
       const command = await service.queueCommand(req.params.key!, parsed.data.type, req.authUser!.id);
       await auditLog.record({ actorUserId: req.authUser!.id, action: "AUTOMATION_COMMAND_QUEUED", targetType: "AccessCommand", targetId: command.id });
       res.status(201).json({ data: { id: command.id, status: command.status, expiresAt: command.expiresAt } });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // --- Commandes manuelles (CDC_APV2_COMMANDES_MANUELLES_RASPBERRY_LOGO) ---
+  // Sensibles (porte notamment) : ADMIN uniquement, jamais STAFF (§12).
+
+  router.post("/admin/automation-devices/:id/commands", requireAuth, requireRole("ADMIN"), async (req, res, next) => {
+    try {
+      const parsed = queueManualCommandSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError(ErrorCodes.VALIDATION_FAILED, "Paramètres invalides.", 422, {
+          issues: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })),
+        });
+      }
+      const command = await service.queueManualCommand(req.params.id!, parsed.data.type, req.authUser!.id);
+      await auditLog.record({ actorUserId: req.authUser!.id, action: "AUTOMATION_MANUAL_COMMAND_QUEUED", targetType: "AccessCommand", targetId: command.id });
+      res.status(201).json({ data: command });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get("/admin/automation-devices/:id/commands", requireAuth, requireRole("STAFF"), async (req, res, next) => {
+    try {
+      const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
+      const commands = await service.listRecentCommandsForDevice(req.params.id!, limit);
+      res.status(200).json({ data: commands });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get("/admin/automation-commands/:id", requireAuth, requireRole("STAFF"), async (req, res, next) => {
+    try {
+      const command = await service.getCommand(req.params.id!);
+      res.status(200).json({ data: command });
     } catch (err) {
       next(err);
     }
@@ -189,7 +281,14 @@ export function createAutomationRouter(service: AutomationService, config: AppCo
 
   router.post("/devices/automation/commands/:id/ack", gated, requireAutomationDeviceAuth(service), async (req, res, next) => {
     try {
-      await service.ackCommand(req.params.id!, req.automationDevice!.id);
+      const parsed = ackSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        throw new AppError(ErrorCodes.VALIDATION_FAILED, "Paramètres invalides.", 422, {
+          issues: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })),
+        });
+      }
+      const result = parsed.data.status === "FAILED" ? (parsed.data.error ?? "FAILED") : "SUCCESS";
+      await service.ackCommand(req.params.id!, req.automationDevice!.id, parsed.data.status, result);
       res.status(204).send();
     } catch (err) {
       next(err);

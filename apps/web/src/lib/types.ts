@@ -483,6 +483,39 @@ export interface AdminAutomationZone {
   label: string;
   courtId: string | null;
   courtName: string | null;
+  doorBeforeMinutes: number | null;
+  doorAfterMinutes: number | null;
+  lightBeforeMinutes: number | null;
+  lightAfterMinutes: number | null;
+}
+
+// --- Commandes manuelles (CDC_APV2_COMMANDES_MANUELLES_RASPBERRY_LOGO) ---
+export type AdminAutomationCommandType = "DOOR_OPEN" | "DOOR_CLOSE" | "LIGHT_ON" | "LIGHT_OFF";
+export type AdminAutomationCommandStatus = "PENDING" | "DELIVERED" | "SUCCESS" | "FAILED" | "EXPIRED";
+
+export interface AdminAutomationCommand {
+  id: string;
+  deviceId: string | null;
+  zoneKey: string | null;
+  type: AdminAutomationCommandType;
+  status: AdminAutomationCommandStatus;
+  requestedBy: string | null;
+  result: string | null;
+  createdAt: string;
+  deliveredAt: string | null;
+  ackedAt: string | null;
+  expiresAt: string;
+}
+
+// --- Codes maîtres employés ---
+export interface AdminStaffAccessCode {
+  id: string;
+  employeeName: string;
+  code: string;
+  status: "ACTIVE" | "REVOKED" | "EXPIRED";
+  expiresAt: string | null;
+  createdAt: string;
+  zones: Array<{ id: string; key: string; label: string }>;
 }
 
 // --- Écran 24 : audit log ---
