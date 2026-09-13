@@ -48,4 +48,16 @@ jobs:
 
       - run: npm run build
 
+      - name: Prepare test database
+        # apps/api/tests/setup.ts refuse de lancer les tests contre une base
+        # sans suffixe `_test` (garde-fou anti-mélange dev/test, CDC §62) —
+        # il faut donc une base et un apps/api/.env.test dédiés, distincts de
+        # DATABASE_URL ci-dessus (utilisée par le build/migrate normal).
+        run: |
+          PGPASSWORD=ardenne psql -h localhost -U ardenne -d postgres -c "CREATE DATABASE ardenne_padel_v2_test;"
+          echo "DATABASE_URL=postgres://ardenne:ardenne@localhost:5432/ardenne_padel_v2_test" > apps/api/.env.test
+          npm run prisma:migrate:deploy --workspace apps/api
+        env:
+          DATABASE_URL: postgres://ardenne:ardenne@localhost:5432/ardenne_padel_v2_test
+
       - run: npm test
