@@ -493,8 +493,15 @@ def main():
     )
     parser.add_argument("--base-url", default=os.environ.get("ARDENNE_API_BASE_URL", "http://localhost:3010/api/v1"))
     parser.add_argument("--db", default=str(Path(__file__).with_name("ardenne_access.db")))
-    parser.add_argument("--sync-interval-seconds", type=float, default=15.0)
-    parser.add_argument("--light-check-interval-seconds", type=float, default=5.0)
+    # Les commandes manuelles (LIGHT_ON, etc.) ne sont livrées qu'au travers du
+    # snapshot complet — pas de route dédiée plus légère. Avec un intervalle
+    # trop long (15s/5s par défaut historique), la latence perçue entre un
+    # clic admin et l'action réelle sur le LOGO! atteignait ~10-15s (observé
+    # le 2026-09-13). Un intervalle court reste peu coûteux grâce à l'ETag
+    # (`If-None-Match`) : sans changement, le serveur répond 304 quasi
+    # instantanément.
+    parser.add_argument("--sync-interval-seconds", type=float, default=3.0)
+    parser.add_argument("--light-check-interval-seconds", type=float, default=3.0)
     parser.add_argument("--test-code", help="Valide un code contre le cache local et quitte, sans boucle ni reseau")
     args = parser.parse_args()
 
