@@ -24,15 +24,37 @@ Base SQLite locale : ardenne_access.db (a cote de ce script, comme le POC).
 import argparse
 import json
 import os
+import signal
 import sqlite3
 import sys
 import time
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 from pymodbus.client import ModbusTcpClient
+
+
+@contextmanager
+def hard_timeout(seconds):
+    """Borne absolue en temps reel (SIGALRM), independante de tout parametre
+    `timeout=` d'une bibliotheque tierce. Necessaire car pymodbus ne borne pas
+    toujours fiablement son `connect()` bas niveau : un LOGO! injoignable a
+    deja bloque le service entier pendant ~14 minutes malgre
+    `timeout=connect_timeout` passe au client (observe en prod le 2026-09-13)."""
+
+    def _on_alarm(signum, frame):
+        raise TimeoutError(f"operation LOGO! au-dela de {seconds}s (bloquee malgre le timeout pymodbus)")
+
+    previous = signal.signal(signal.SIGALRM, _on_alarm)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
 
 # ---------------------------------------------------------------------------
 # LOGO! — pilotage matériel (adresses validées sur le POC réel, 2026-09-10/12)
@@ -59,15 +81,16 @@ class LogoDriver:
     def _pulse_coil(self, address):
         client = ModbusTcpClient(self.host, port=self.port, timeout=self.connect_timeout)
         try:
-            if not client.connect():
-                raise ConnectionError(f"Impossible de se connecter au LOGO! {self.host}:{self.port}")
-            result_on = client.write_coil(address, True)
-            if result_on.isError():
-                raise RuntimeError(f"Erreur Modbus ON: {result_on}")
-            time.sleep(self.pulse_seconds)
-            result_off = client.write_coil(address, False)
-            if result_off.isError():
-                raise RuntimeError(f"Erreur Modbus OFF: {result_off}")
+            with hard_timeout(int(self.connect_timeout) + 3):
+                if not client.connect():
+                    raise ConnectionError(f"Impossible de se connecter au LOGO! {self.host}:{self.port}")
+                result_on = client.write_coil(address, True)
+                if result_on.isError():
+                    raise RuntimeError(f"Erreur Modbus ON: {result_on}")
+                time.sleep(self.pulse_seconds)
+                result_off = client.write_coil(address, False)
+                if result_off.isError():
+                    raise RuntimeError(f"Erreur Modbus OFF: {result_off}")
             self.last_call_ok = True
             return True
         except Exception:
@@ -98,7 +121,8 @@ class LogoDriver:
         ne jamais geler la boucle d'eclairage si le reseau est degrade."""
         client = ModbusTcpClient(self.host, port=self.port, timeout=self.connect_timeout)
         try:
-            ok = client.connect()
+            with hard_timeout(int(self.connect_timeout) + 3):
+                ok = client.connect()
             self.last_call_ok = ok
             return ok
         except Exception:
@@ -157,7 +181,7 @@ class LocalCache:
                 command_id TEXT PRIMARY KEY,
                 executed_at TEXT
             );
-            CREATE TABLE IF NOT EXISTS access_events (
+            CREATE TABLE IF NOT EXISTS device_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 event_id TEXT NOT NULL,
                 type TEXT NOT NULL,
@@ -240,13 +264,13 @@ class LocalCache:
     def queue_event(self, event_id: str, event_type: str, payload: dict, occurred_at: str):
         with self.conn:
             self.conn.execute(
-                "INSERT INTO access_events (event_id, type, payload, occurred_at, sent) VALUES (?, ?, ?, ?, 0)",
+                "INSERT INTO device_events (event_id, type, payload, occurred_at, sent) VALUES (?, ?, ?, ?, 0)",
                 (event_id, event_type, json.dumps(payload), occurred_at),
             )
 
     def pending_events(self, limit=50):
         return self.conn.execute(
-            "SELECT id, event_id, type, payload, occurred_at FROM access_events WHERE sent = 0 ORDER BY id ASC LIMIT ?",
+            "SELECT id, event_id, type, payload, occurred_at FROM device_events WHERE sent = 0 ORDER BY id ASC LIMIT ?",
             (limit,),
         ).fetchall()
 
@@ -254,10 +278,10 @@ class LocalCache:
         if not ids:
             return
         with self.conn:
-            self.conn.executemany("UPDATE access_events SET sent = 1 WHERE id = ?", [(i,) for i in ids])
+            self.conn.executemany("UPDATE device_events SET sent = 1 WHERE id = ?", [(i,) for i in ids])
 
     def pending_events_count(self) -> int:
-        return self.conn.execute("SELECT count(*) c FROM access_events WHERE sent = 0").fetchone()["c"]
+        return self.conn.execute("SELECT count(*) c FROM device_events WHERE sent = 0").fetchone()["c"]
 
     def validate_code(self, code: str):
         """Validation locale hors-ligne (dossier technique §40) — jamais d'appel

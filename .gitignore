@@ -17,3 +17,4 @@ apps/api/executed_commands.json
 # — cache/état généré à l'exécution, jamais versionné.
 apps/api/src/scripts/executed_commands.json
 apps/api/src/scripts/ardenne_access.db
+apps/api/src/scripts/__pycache__/
