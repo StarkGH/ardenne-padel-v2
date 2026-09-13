@@ -309,8 +309,6 @@ export default function AdminAutomationPage() {
   }
 
   async function handleManualCommand(deviceId: string, type: AdminAutomationCommandType) {
-    if (type === "DOOR_OPEN" && !window.confirm("Confirmer l'ouverture de la porte ?")) return;
-
     setPendingByDevice((prev) => ({ ...prev, [deviceId]: true }));
     setFeedbackByDevice((prev) => ({ ...prev, [deviceId]: { commandId: "", label: COMMAND_LABELS[type], text: "Envoi...", tone: "progress" } }));
     try {

@@ -409,4 +409,46 @@ export class AutomationService {
       body: { revision, generatedAt: now.toISOString(), zones: zonesOut, grants: grantsOut, lightIntervals, commands: commandsOut },
     };
   }
+
+  /**
+   * Vérification admin d'un code, sans matériel : rejoue exactement les
+   * mêmes sources et fenêtres de validité que `buildSnapshot` (V2_GENERATED/
+   * LEGACY_IMPORTED, STAFF_MASTER, LEGACY_ONLY), pour donner une réponse
+   * fidèle à ce que le Raspberry validerait localement — utile pour tester
+   * le circuit de bout en bout avant que le clavier physique soit câblé.
+   */
+  async testAccessCode(code: string): Promise<{ granted: boolean; scope?: string; origin?: string }> {
+    const zones = await this.zoneRepo.listActive();
+    const now = new Date();
+    const from = new Date(now.getTime() - DEFAULT_SNAPSHOT_WINDOW_BEFORE_HOURS * 3_600_000);
+    const to = new Date(now.getTime() + DEFAULT_SNAPSHOT_WINDOW_AFTER_HOURS * 3_600_000);
+
+    const grantScopes = new Set<string>();
+    for (const z of zones) {
+      grantScopes.add(z.key);
+      if (z.courtId) grantScopes.add(z.courtId);
+      if (z.court?.name) grantScopes.add(z.court.name);
+    }
+    const zoneIds = zones.map((z) => z.id);
+
+    const grants = grantScopes.size > 0 ? await this.grantRepo.findActiveInScopesWindow([...grantScopes], from, to) : [];
+    const staffGrants = await this.staffAccessCodeService.findActiveGrantsForZoneIds(zoneIds);
+    const doinsportOnlyGrants = await this.doinsportAccessCodeRepo.findActiveForScopesWindow(grantScopes, from, to);
+
+    const candidates = [
+      ...grants.map((g) => ({
+        scope: g.scope,
+        code: decryptAccessCode(this.config, g.codeCiphertext, g.codeIv),
+        origin: g.origin as string,
+        validFrom: g.validFrom,
+        validUntil: g.validUntil,
+      })),
+      ...staffGrants.map((g) => ({ scope: g.scope, code: g.code, origin: "STAFF_MASTER", validFrom: g.validFrom, validUntil: g.validUntil })),
+      ...doinsportOnlyGrants.map((g) => ({ scope: g.scope, code: g.code, origin: "LEGACY_ONLY", validFrom: g.validFrom, validUntil: g.validUntil })),
+    ];
+
+    const match = candidates.find((c) => c.code === code && c.validFrom <= now && c.validUntil >= now);
+    if (!match) return { granted: false };
+    return { granted: true, scope: match.scope, origin: match.origin };
+  }
 }

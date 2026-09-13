@@ -33,6 +33,10 @@ const updateZoneMarginsSchema = z.object({
 
 const commandTypeSchema = z.enum(["DOOR_OPEN", "DOOR_CLOSE", "LIGHT_ON", "LIGHT_OFF"]);
 
+const testAccessCodeSchema = z.object({
+  code: z.string().min(1).max(50),
+});
+
 const queueCommandSchema = z.object({
   type: commandTypeSchema,
 });
@@ -240,6 +244,25 @@ export function createAutomationRouter(service: AutomationService, config: AppCo
     try {
       const command = await service.getCommand(req.params.id!);
       res.status(200).json({ data: command });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Test admin d'un code (sans matériel) : rejoue la même logique de
+  // validation que le Raspberry (mêmes sources/fenêtres), pour vérifier le
+  // circuit code -> zone avant que le clavier physique soit câblé. Ne
+  // révèle jamais de code existant, uniquement le résultat GRANTED/DENIED.
+  router.post("/admin/automation/test-code", requireAuth, requireRole("STAFF"), async (req, res, next) => {
+    try {
+      const parsed = testAccessCodeSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError(ErrorCodes.VALIDATION_FAILED, "Paramètres invalides.", 422, {
+          issues: parsed.error.issues.map((i) => ({ path: i.path, message: i.message })),
+        });
+      }
+      const result = await service.testAccessCode(parsed.data.code);
+      res.status(200).json({ data: result });
     } catch (err) {
       next(err);
     }
