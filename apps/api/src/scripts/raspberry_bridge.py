@@ -147,42 +147,49 @@ def main():
     print(f"Pont AP V2 <-> LOGO! demarre - {args.base_url} - LOGO! {logo.host}:{logo.port}")
 
     while True:
-        headers = {"If-None-Match": last_etag} if last_etag else {}
-        status, body = api_call(args.base_url, args.key, "/devices/automation/snapshot", extra_headers=headers)
+        try:
+            headers = {"If-None-Match": last_etag} if last_etag else {}
+            status, body = api_call(args.base_url, args.key, "/devices/automation/snapshot", extra_headers=headers)
 
-        if status == 304:
-            pass
-        elif status == 200:
-            data = body["data"]
-            last_etag = data["revision"]
-            commands = data["commands"]
-            if commands:
-                print(f"{len(commands)} commande(s) recue(s)")
-            for command in commands:
-                if command["id"] in executed_ids:
-                    print(f"  commande {command['id']} deja executee, re-ACK seulement")
-                    api_call(args.base_url, args.key, f"/devices/automation/commands/{command['id']}/ack", method="POST", body={"status": "SUCCESS"})
-                    continue
+            if status == 304:
+                pass
+            elif status == 200:
+                data = body["data"]
+                last_etag = data["revision"]
+                commands = data["commands"]
+                if commands:
+                    print(f"{len(commands)} commande(s) recue(s)")
+                for command in commands:
+                    if command["id"] in executed_ids:
+                        print(f"  commande {command['id']} deja executee, re-ACK seulement")
+                        api_call(args.base_url, args.key, f"/devices/automation/commands/{command['id']}/ack", method="POST", body={"status": "SUCCESS"})
+                        continue
 
-                cmd_status, error = execute_command(logo, command)
-                executed_ids.add(command["id"])
-                save_executed_ids(executed_ids)
+                    cmd_status, error = execute_command(logo, command)
+                    executed_ids.add(command["id"])
+                    save_executed_ids(executed_ids)
 
-                ack_body = {"status": cmd_status}
-                if error:
-                    ack_body["error"] = error
-                ack_status, _ = api_call(args.base_url, args.key, f"/devices/automation/commands/{command['id']}/ack", method="POST", body=ack_body)
-                print(f"  {command['type']} -> {cmd_status}{' (' + error + ')' if error else ''} - ACK {ack_status}")
-        else:
-            print(f"snapshot en echec : {status} {body}")
+                    ack_body = {"status": cmd_status}
+                    if error:
+                        ack_body["error"] = error
+                    ack_status, _ = api_call(args.base_url, args.key, f"/devices/automation/commands/{command['id']}/ack", method="POST", body=ack_body)
+                    print(f"  {command['type']} -> {cmd_status}{' (' + error + ')' if error else ''} - ACK {ack_status}")
+            else:
+                print(f"snapshot en echec : {status} {body}")
 
-        api_call(
-            args.base_url,
-            args.key,
-            "/devices/automation/heartbeat",
-            method="POST",
-            body={"revision": last_etag, "softwareVersion": "raspberry-bridge-1.0"},
-        )
+            api_call(
+                args.base_url,
+                args.key,
+                "/devices/automation/heartbeat",
+                method="POST",
+                body={"revision": last_etag, "softwareVersion": "raspberry-bridge-1.0"},
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Le pont ne doit jamais s'arreter (RASPBERRY_PROTOCOL.md : retry
+            # avec backoff, jamais planter) - API redemarree, reseau coupe,
+            # LOGO! injoignable, etc. On journalise et on reessaie au prochain
+            # tick plutot que de crasher le process.
+            print(f"erreur transitoire, on reessaie : {exc}")
 
         time.sleep(args.interval_seconds)
 
