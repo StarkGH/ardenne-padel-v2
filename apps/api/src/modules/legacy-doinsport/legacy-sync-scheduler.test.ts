@@ -59,7 +59,15 @@ describe("LegacySyncScheduler", () => {
 
   /** Double contrôlable : renvoie une réservation fixe, avec un frein optionnel pour tester la garde anti-chevauchement. */
   class ControllableProvider extends FakeLegacyProvider {
-    bookings: { id: string; startAt: string; endAt: string; playgroundIds: string[]; raw?: unknown; canceled?: boolean }[] = [];
+    bookings: {
+      id: string;
+      startAt: string;
+      endAt: string;
+      playgroundIds: string[];
+      raw?: unknown;
+      canceled?: boolean;
+      accessCodes?: Array<{ code?: string; playgroundName?: string }>;
+    }[] = [];
     blocker: Promise<void> = Promise.resolve();
 
     override async listBookings(_range: DateRange) {
@@ -75,7 +83,7 @@ describe("LegacySyncScheduler", () => {
         canceled: b.canceled ?? false,
         comment: null,
         playgroundIds: b.playgroundIds,
-        accessCodes: [],
+        accessCodes: b.accessCodes ?? [],
         bookingOwnerClientId: null,
         raw: b.raw ?? null,
       };
@@ -102,6 +110,39 @@ describe("LegacySyncScheduler", () => {
     expect(runs[0]!.status).toBe("SUCCESS");
     const booking = await prisma.legacyBooking.findFirst({ where: { externalId: "b1" } });
     expect(booking).not.toBeNull();
+  });
+
+  /**
+   * Demande explicite (2026-09-12) : les codes d'accès Doinsport doivent
+   * être synchronisés comme les réservations elles-mêmes, y compris pour
+   * les réservations jamais passées par le checkout V2 (écran "Accès",
+   * `BookingsAdminService.listAccessGrants`).
+   */
+  it("persiste les codes d'accès Doinsport sur la réservation Legacy, rafraîchis à chaque sync", async () => {
+    const { legacyPlaygroundId } = await createCourtWithMapping();
+    const provider = new ControllableProvider();
+    provider.bookings = [
+      {
+        id: "b-access-codes",
+        startAt: new Date().toISOString(),
+        endAt: new Date(Date.now() + 3600_000).toISOString(),
+        playgroundIds: [legacyPlaygroundId],
+        accessCodes: [{ code: "5566#", playgroundName: "Padel 1" }],
+      },
+    ];
+    const { scheduler } = buildScheduler(provider);
+
+    await scheduler.runFastSync();
+
+    const booking = await prisma.legacyBooking.findFirstOrThrow({ where: { externalId: "b-access-codes" } });
+    expect(booking.accessCodes).toEqual([{ code: "5566#", playgroundName: "Padel 1" }]);
+
+    // Re-sync avec un nouveau code (ex. régénéré côté Doinsport) : la valeur stockée doit suivre.
+    provider.bookings[0]!.accessCodes = [{ code: "9900#", playgroundName: "Padel 1" }];
+    await scheduler.runFastSync();
+
+    const resynced = await prisma.legacyBooking.findFirstOrThrow({ where: { externalId: "b-access-codes" } });
+    expect(resynced.accessCodes).toEqual([{ code: "9900#", playgroundName: "Padel 1" }]);
   });
 
   it("importBookings écrit les participants dénormalisés (nom + compteur de réservations actives) et le statut de paiement (CDC §55 écran 3)", async () => {

@@ -60,7 +60,14 @@ export class AccessGrantService {
       codeCiphertext: ciphertext,
       codeIv: iv,
       origin: "LEGACY_IMPORTED",
-      scope: legacyCode.playgroundName ?? booking.courtId,
+      // Bug corrigé le 2026-09-13 (vérifié sur données réelles) : `playgroundName`
+      // renvoyé par Doinsport contient en réalité le(s) nom(s) du/des
+      // participant(s) ("Coenen", "Fernandes / Coenen"...), jamais le
+      // terrain — l'utiliser comme scope aurait rendu ces grants
+      // silencieusement invisibles au Raspberry (aucune zone ne matche un
+      // nom de participant). `booking.courtId` est toujours fiable, exactement
+      // comme pour `V2_GENERATED` ci-dessous.
+      scope: booking.courtId,
       status: "ACTIVE",
       validFrom: booking.startAt,
       validUntil: booking.endAt,

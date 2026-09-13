@@ -293,6 +293,13 @@ model LegacyBooking {
   /// au niveau de la réservation est fiable. `true` par défaut (pas d'alerte
   /// tant que le calcul n'a pas explicitement établi un manque).
   fullyPaid          Boolean                    @default(true) @map("fully_paid")
+  /// Codes d'accès Doinsport tels que renvoyés par `getBooking()`
+  /// (`[{code, playgroundName, accessCodeEnabledBefore}]`), déjà en clair
+  /// côté Doinsport (pas de chiffrement ici, contrairement à `AccessGrant` :
+  /// cette réservation n'a jamais transité par V2). Rafraîchi à chaque sync
+  /// (§55 écran 22 — "Accès", demande explicite : voir aussi tout Doinsport,
+  /// pas seulement les réservations V2/Dual Run).
+  accessCodes        Json?                      @map("access_codes")
   participants       LegacyBookingParticipant[]
 
   @@unique([externalId, courtId])

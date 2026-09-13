@@ -9,6 +9,7 @@ import type { ZoneRepository } from "./zone.repository.js";
 import type { LightScheduleRepository } from "./light-schedule.repository.js";
 import { mergeLightIntervals } from "./light-interval-merger.js";
 import type { StaffAccessCodeService } from "./staff-access-code.service.js";
+import type { DoinsportAccessCodeRepository } from "./doinsport-access-code.repository.js";
 
 export type ManualCommandType = "DOOR_OPEN" | "DOOR_CLOSE" | "LIGHT_ON" | "LIGHT_OFF";
 /** Vocabulaire complet accepté par `AccessCommand.type` — identique aux commandes manuelles pour l'instant (aucune commande automatisée n'existe encore réellement). */
@@ -81,6 +82,7 @@ export class AutomationService {
     private readonly grantRepo: AccessGrantRepository,
     private readonly lightScheduleRepo: LightScheduleRepository,
     private readonly staffAccessCodeService: StaffAccessCodeService,
+    private readonly doinsportAccessCodeRepo: DoinsportAccessCodeRepository,
     private readonly config: AppConfig,
   ) {}
 
@@ -306,6 +308,16 @@ export class AutomationService {
    * Les commandes manuelles ciblent directement `deviceId` (pas de zone) —
    * `findDeliverableCommands` renvoie donc l'union des commandes de zone du
    * device (`zoneId` parmi les zones actives) et de ses commandes device-only.
+   *
+   * Les réservations purement Doinsport (jamais passées par le checkout V2,
+   * demande explicite du 2026-09-12) sont fusionnées ici aussi
+   * (`DoinsportAccessCodeRepository`, origin `LEGACY_ONLY`), avec exclusion
+   * de toute réservation déjà couverte par un `AccessGrant` Dual Run — le
+   * Raspberry ne doit jamais voir deux fois le même code sous deux origines.
+   * Une annulation côté Doinsport retire le code du prochain snapshot dès
+   * que la synchro Legacy l'a marquée `canceled` (même mécanisme que les
+   * réservations elles-mêmes, pas de logique de révocation séparée à
+   * maintenir).
    */
   async buildSnapshot(deviceId: string, ifNoneMatch: string | undefined): Promise<SnapshotResult> {
     await this.deviceRepo.expireStaleCommands();
@@ -343,6 +355,7 @@ export class AutomationService {
     const zoneById = new Map(zones.map((z) => [z.id, z]));
 
     const staffGrants = await this.staffAccessCodeService.findActiveGrantsForZoneIds(zoneIds);
+    const doinsportOnlyGrants = await this.doinsportAccessCodeRepo.findActiveForScopesWindow(grantScopes, from, to);
 
     const zonesOut = zones.map((z) => ({ key: z.key, type: z.type, label: z.label, courtId: z.courtId }));
     const grantsOut = [
@@ -357,6 +370,13 @@ export class AutomationService {
         scope: g.scope,
         code: g.code,
         origin: "STAFF_MASTER",
+        validFrom: g.validFrom.toISOString(),
+        validUntil: g.validUntil.toISOString(),
+      })),
+      ...doinsportOnlyGrants.map((g) => ({
+        scope: g.scope,
+        code: g.code,
+        origin: "LEGACY_ONLY",
         validFrom: g.validFrom.toISOString(),
         validUntil: g.validUntil.toISOString(),
       })),

@@ -6,6 +6,7 @@ import type { CourtsRepository } from "../courts/courts.repository.js";
 import type { IdentityRepository } from "../identity/identity.repository.js";
 import type { LegacyBookingProvider } from "../legacy-doinsport/types.js";
 import type { AccessGrantService } from "../access/access-grant.service.js";
+import { decryptAccessCode } from "../access/access-code-crypto.js";
 import type { NotificationService } from "../notifications/notification.service.js";
 import type { AuditLogService } from "./audit-log.service.js";
 
@@ -15,6 +16,23 @@ export interface AdminCreateBookingInput {
   startAt: string;
   durationMinutes: number;
   paymentMode?: "FULL" | "SPLIT";
+}
+
+/** Ligne unifiée écran 22 "Accès" — grants V2/Dual Run déchiffrés + codes purement Doinsport (jamais passés par V2). */
+export interface AccessGrantDisplayRow {
+  id: string;
+  bookingId: string | null;
+  origin: "V2_GENERATED" | "LEGACY_IMPORTED" | "LEGACY_ONLY";
+  scope: string;
+  code: string;
+  status: string;
+  validFrom: Date;
+  validUntil: Date;
+  provisionedAt: Date | null;
+  revokedAt: Date | null;
+  providerReference: string | null;
+  createdAt: Date;
+  booking: { startAt: Date; court: { name: string }; organizer: { firstName: string; lastName: string; email: string } };
 }
 
 export interface AdminAddParticipantInput {
@@ -77,8 +95,62 @@ export class BookingsAdminService {
   }
 
   /** CDC §55 écran 22 — accès (codes provisionnés/échoués), jamais le chiffré lui-même. */
-  async listAccessGrants(fromISO: string, toISO: string) {
-    return this.repo.listAccessGrantsInRange(new Date(fromISO), new Date(toISO));
+  /**
+   * Demande explicite du club (2026-09-12) : le staff a besoin de voir le
+   * PIN en clair pour le communiquer/vérifier à l'accueil — déchiffré ici,
+   * juste avant la réponse HTTP, jamais stocké en clair (CDC §57.1/§34.4).
+   * `codeCiphertext`/`codeIv` sont retirés de l'objet retourné : ils ne
+   * doivent jamais atteindre le frontend, même chiffrés.
+   *
+   * Fusionne aussi les codes des réservations purement Doinsport (jamais
+   * passées par le checkout V2, donc sans `AccessGrant` — même principe que
+   * le planning qui affiche déjà les occupations Legacy-only à côté des
+   * réservations V2, ADR-0038 addendum). Ces codes-là sont déjà en clair
+   * côté Doinsport, aucun déchiffrement nécessaire.
+   */
+  async listAccessGrants(fromISO: string, toISO: string): Promise<AccessGrantDisplayRow[]> {
+    const grants = await this.repo.listAccessGrantsInRange(new Date(fromISO), new Date(toISO));
+    const v2Rows: AccessGrantDisplayRow[] = grants.map(({ codeCiphertext, codeIv, ...rest }) => ({
+      ...rest,
+      bookingId: rest.bookingId as string | null,
+      code: decryptAccessCode(this.config, codeCiphertext, codeIv),
+    }));
+
+    const legacyBookings = await this.repo.listLegacyAccessCodesInRange(new Date(fromISO), new Date(toISO));
+    const legacyRows: AccessGrantDisplayRow[] = [];
+    for (const lb of legacyBookings) {
+      // `accessCodes[].playgroundName` contient en réalité le(s) nom(s) du/des
+      // participant(s) côté Doinsport ("Coenen", "Fernandes / Coenen"...),
+      // jamais le terrain (vérifié sur données réelles, 2026-09-13) — on
+      // utilise donc toujours `lb.court.name`, jamais ce champ.
+      const codes = Array.isArray(lb.accessCodes) ? (lb.accessCodes as Array<{ code?: string }>) : [];
+      codes.forEach((c, idx) => {
+        if (!c.code) return;
+        legacyRows.push({
+          id: `${lb.id}:${idx}`,
+          bookingId: null,
+          origin: "LEGACY_ONLY",
+          scope: lb.court.name,
+          code: c.code,
+          status: lb.canceled ? "REVOKED" : "ACTIVE",
+          validFrom: lb.startAt,
+          validUntil: lb.endAt,
+          provisionedAt: lb.lastSyncedAt,
+          revokedAt: lb.canceled ? lb.lastSyncedAt : null,
+          providerReference: "legacy:doinsport",
+          createdAt: lb.lastSyncedAt,
+          booking: {
+            startAt: lb.startAt,
+            court: { name: lb.court.name },
+            organizer: lb.legacyClient
+              ? { firstName: lb.legacyClient.firstName, lastName: lb.legacyClient.lastName, email: "" }
+              : { firstName: "Client", lastName: "Doinsport", email: "" },
+          },
+        });
+      });
+    }
+
+    return [...v2Rows, ...legacyRows].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   }
 
   /** CDC §55 écran 4 — pas de garde organisateur/date ici, réservé STAFF+ (contrairement à `GET /bookings/:id` côté client). */

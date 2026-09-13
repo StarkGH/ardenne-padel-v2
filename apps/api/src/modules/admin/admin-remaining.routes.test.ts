@@ -7,6 +7,7 @@ import { createApp } from "../../app.js";
 import { resetIntegrationTestData } from "../../testing/reset-db.js";
 import { hashPassword } from "../identity/password.js";
 import { IdentityRepository } from "../identity/identity.repository.js";
+import { encryptAccessCode } from "../access/access-code-crypto.js";
 
 /**
  * CDC §55 écrans 13, 15-16, 19-20, 22, 24-25 — tranche "restant" des écrans
@@ -202,11 +203,12 @@ describe("Admin — écrans restants (CDC §55)", () => {
         status: "CONFIRMED",
       },
     });
+    const { ciphertext, iv } = encryptAccessCode(loadConfig(), "4242#");
     await prisma.accessGrant.create({
       data: {
         booking: { connect: { id: booking.id } },
-        codeCiphertext: "should-never-appear-in-response",
-        codeIv: "iv",
+        codeCiphertext: ciphertext,
+        codeIv: iv,
         origin: "V2_GENERATED",
         scope: "BOOKING",
         status: "FAILED",
@@ -221,6 +223,10 @@ describe("Admin — écrans restants (CDC §55)", () => {
     expect(res.status).toBe(200);
     expect(res.body.data).toHaveLength(1);
     expect(res.body.data[0].status).toBe("FAILED");
-    expect(JSON.stringify(res.body.data)).not.toContain("should-never-appear-in-response");
+    // Le PIN en clair est désormais exposé au staff (demande explicite, 2026-09-12) — jamais le ciphertext/iv bruts.
+    expect(res.body.data[0].code).toBe("4242#");
+    expect(res.body.data[0]).not.toHaveProperty("codeCiphertext");
+    expect(res.body.data[0]).not.toHaveProperty("codeIv");
+    expect(JSON.stringify(res.body.data)).not.toContain(ciphertext);
   });
 });

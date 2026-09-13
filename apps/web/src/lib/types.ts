@@ -453,9 +453,10 @@ export interface AdminTerminalDevice {
 // --- Écran 22 : accès ---
 export interface AdminAccessGrant {
   id: string;
-  bookingId: string;
-  origin: "V2_GENERATED" | "LEGACY_IMPORTED";
+  bookingId: string | null;
+  origin: "V2_GENERATED" | "LEGACY_IMPORTED" | "LEGACY_ONLY";
   scope: string;
+  code: string;
   status: "PENDING" | "ACTIVE" | "REVOKED" | "EXPIRED" | "FAILED";
   validFrom: string;
   validUntil: string;

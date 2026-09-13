@@ -135,6 +135,7 @@ export async function importBookings(
               priceDueCents,
               priceReceivedCents,
               fullyPaid,
+              accessCodes: full.accessCodes,
               lastSyncedAt: new Date(),
             },
             update: {
@@ -146,6 +147,7 @@ export async function importBookings(
               priceDueCents,
               priceReceivedCents,
               fullyPaid,
+              accessCodes: full.accessCodes,
               lastSyncedAt: new Date(),
             },
           });

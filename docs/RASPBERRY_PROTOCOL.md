@@ -127,9 +127,9 @@ JSON réel obtenu en dev local le 2026-09-10 (identifiants de test, hors product
 | `zones[].key` | string | Identifiant stable de la zone, choisi côté back-office. **C'est la clé que le Raspberry utilise pour son mapping local** (`main_entry` → `Q6`, etc. — CDC §37 : ce mapping reste local, le serveur ne le connaît jamais). |
 | `zones[].type` | `DOOR \| LIGHT \| GENERIC` | |
 | `zones[].courtId` | string uuid ou `null` | Renseigné si la zone est liée à un terrain V2. |
-| `grants[].scope` | string | **Piège connu, à respecter absolument** : pour un grant `V2_GENERATED`, `scope` = l'UUID `Court.id`. Pour un grant `LEGACY_IMPORTED`, `scope` = le libellé Doinsport du terrain (`playgroundName`, ex. `"Padel 1"`) **quand Doinsport l'a fourni** — donc une chaîne humaine, pas un UUID. Le serveur résout déjà cette double correspondance avant d'inclure le grant dans le snapshot (voir §7) ; côté Raspberry, il suffit de faire correspondre `grants[].scope` à la zone dont c'est soit la clé, soit le libellé attendu au moment du provisionnement (à documenter localement, hors serveur). |
+| `grants[].scope` | string | Pour `V2_GENERATED` et `LEGACY_IMPORTED` : l'UUID `Court.id` (corrigé le 2026-09-13 — voir §7, `playgroundName` n'est **jamais** utilisé pour le scope, il ne contient pas ce qu'on croyait). Pour `STAFF_MASTER` : la `key` de la zone assignée. Pour `LEGACY_ONLY` : le **nom** du terrain (`Court.name`, ex. `"Padel 1"`) — pas l'UUID, faute d'un `Booking` V2 pour porter un `courtId` fiable. Le Raspberry doit donc faire correspondre `grants[].scope` à la zone dont c'est soit la `key`, soit le `courtId`, soit le `Court.name` (le serveur expose déjà les trois comme scopes valides côté zone, voir §7). |
 | `grants[].code` | string `NNNN#` | Le PIN en clair, déchiffré côté serveur juste avant l'envoi (jamais stocké en clair en base — CDC §57.1/§34.4). Ne jamais logger ce champ. |
-| `grants[].origin` | `V2_GENERATED \| LEGACY_IMPORTED \| STAFF_MASTER` | Purement informatif pour le Raspberry (debug/audit) — la validation locale du code ne doit pas différer selon l'origine. `STAFF_MASTER` = code maître employé (nominatif, zone par zone, jamais lié à une réservation — géré depuis `/admin/automation`, section "Codes maîtres employés") ; `validUntil` vaut la date d'expiration choisie à la création, ou une date très lointaine (2099) si le code n'expire jamais. |
+| `grants[].origin` | `V2_GENERATED \| LEGACY_IMPORTED \| STAFF_MASTER \| LEGACY_ONLY` | Purement informatif pour le Raspberry (debug/audit) — la validation locale du code ne doit pas différer selon l'origine. `STAFF_MASTER` = code maître employé (nominatif, zone par zone, jamais lié à une réservation — géré depuis `/admin/automation`, section "Codes maîtres employés") ; `validUntil` vaut la date d'expiration choisie à la création, ou une date très lointaine (2099) si le code n'expire jamais. `LEGACY_ONLY` = réservation purement Doinsport, **jamais passée par le checkout V2** (donc sans `AccessGrant`) — ajouté le 2026-09-13, demande explicite : le Raspberry doit aussi stocker/valider ces codes-là, pas seulement les V2/Dual Run. Exclus systématiquement si la réservation a déjà un `AccessGrant` Dual Run (`LEGACY_IMPORTED`), pour ne jamais exposer le même code deux fois. Disparaît du snapshot dès que la réservation est marquée annulée côté Doinsport (`LegacyBooking.canceled`), au prochain cycle de synchro — aucune logique de révocation séparée à maintenir. |
 | `grants[].validFrom` / `validUntil` | ISO 8601 UTC | Fenêtre de validité (inclut déjà les marges `ACCESS_ENABLED_BEFORE/AFTER_MINUTES`). |
 | `lightIntervals[].zoneKey` | string | Référence `zones[].key` d'une zone `LIGHT`. |
 | `lightIntervals[].startsAt` / `endsAt` | ISO 8601 UTC | Intervalle déjà marginé (`LIGHT_ENABLED_BEFORE/AFTER_MINUTES`) et **fusionné** : deux réservations qui se chevauchent ou se suivent immédiatement après marge ne produisent jamais deux intervalles distincts (voir §8). |
@@ -302,21 +302,63 @@ processus API.
 
 ---
 
-## 7. Résolution des grants par zone (piège Dual Run)
+## 7. Résolution des grants par zone (piège `playgroundName`, corrigé le 2026-09-13)
 
-`AccessGrantService.provisionOrImportForBooking` (module `access`, pas `automation`) fixe
-`scope` différemment selon l'origine du code :
+**Bug réel trouvé sur données de production** : `accessCodes[].playgroundName`, renvoyé
+par l'API Doinsport, ne contient **jamais** le nom du terrain malgré ce que son nom
+suggère — il contient le(s) nom(s) du/des participant(s) de la réservation. Exemples
+observés en prod : `"Coenen"`, `"Fernandes / Coenen"`, `"Pierard / Letawe / JESUS / Paulis"`.
+Une implémentation antérieure de `AccessGrantService.importLegacyGrant` (module `access`)
+utilisait ce champ comme `scope` pour les grants `LEGACY_IMPORTED` — un grant scopé
+`"Coenen"` ne correspond à aucune zone, il aurait donc été **silencieusement invisible**
+au Raspberry pour la quasi-totalité des réservations réelles.
 
-- **`V2_GENERATED`** : `scope = booking.courtId` (UUID V2).
-- **`LEGACY_IMPORTED`** : `scope = playgroundName` (libellé Doinsport, ex. `"Padel 1"`)
-  **si Doinsport l'a fourni**, sinon repli sur `booking.courtId`.
+**Corrigé** : `AccessGrantService.provisionOrImportForBooking` fixe désormais toujours
+`scope = booking.courtId` (UUID V2), quelle que soit l'origine (`V2_GENERATED` et
+`LEGACY_IMPORTED` traités identiquement) — `playgroundName` n'est plus utilisé du tout
+pour le scope. `AutomationService.buildSnapshot` continue par ailleurs de construire
+l'ensemble des scopes à interroger comme l'union, pour chaque zone active, de sa `key`,
+son `courtId` et le nom du `Court` lié (`zone.court.name`) — ce dernier reste nécessaire
+pour les grants `LEGACY_ONLY` (§9bis), qui n'ont pas de `Booking` V2 et donc pas de
+`courtId` fiable, et utilisent le nom réel du terrain (`Court.name`, résolu via le
+mapping playground↔terrain de la synchro — jamais `playgroundName`).
 
-`AutomationService.buildSnapshot` construit donc l'ensemble des scopes à interroger comme
-l'union, pour chaque zone active : sa `key`, son `courtId` (si renseigné), **et** le nom
-du `Court` lié (`zone.court.name`, si renseigné). Sans cette double correspondance, tous
-les grants `LEGACY_IMPORTED` disparaîtraient silencieusement du snapshot — vérifié par un
-test dédié (`automation.service.test.ts`, "routes both V2_GENERATED ... and
-LEGACY_IMPORTED ... grants") et en conditions réelles (§3, exemple de réponse ci-dessus).
+Vérifié par un test dédié (`automation.service.test.ts`, "routes both V2_GENERATED and
+LEGACY_IMPORTED grants ... playgroundName is never trusted for scope") et en conditions
+réelles (§3, exemple de réponse ci-dessus, terrain "Padel 4").
+
+---
+
+## 7bis. Réservations Doinsport-only (origin `LEGACY_ONLY`)
+
+Demande explicite (2026-09-13) : le Raspberry doit aussi stocker/valider les codes des
+réservations **jamais passées par le checkout V2** (donc sans `AccessGrant` du tout) —
+jusque-là visibles uniquement sur l'écran admin `/admin/access`, jamais transmises au
+Raspberry.
+
+`DoinsportAccessCodeRepository.findActiveForScopesWindow` (module `automation`) :
+
+1. Récupère toutes les `LegacyBooking` non annulées dans la fenêtre du snapshot avec
+   `accessCodes` non vide.
+2. **Exclut** toute réservation déjà mappée V2 (Dual Run —
+   `LegacyBookingMapping.legacyBookingId` renseigné pointant vers son `externalId`) :
+   celle-là a déjà son `AccessGrant` `LEGACY_IMPORTED` via le chemin normal (§7) — ne
+   jamais exposer le même code deux fois sous deux origines différentes.
+3. Scope **toujours** sur `Court.name` (jamais `accessCodes[].playgroundName`, voir §7 —
+   ce champ contient un nom de participant, pas un terrain).
+
+Contrairement aux grants classiques, une `LegacyBooking` n'a pas de fenêtre de validité
+"marge avant/après" appliquée ici : `validFrom`/`validUntil` = `startAt`/`endAt` bruts de
+la réservation (Doinsport gère déjà sa propre marge via
+`accessCodes[].accessCodeEnabledBefore`, un champ non exploité ici par prudence — sémantique
+pas assez sûre pour s'y fier sans une deuxième vérification empirique).
+
+**Invalidation à l'annulation** : aucune logique de révocation séparée à maintenir — dès
+que la synchro Legacy (fréquente, ~60 s) marque `LegacyBooking.canceled = true`, la ligne
+sort de la requête `canceled: false` et disparaît du prochain snapshot. Vérifié par un
+test dédié (`automation.service.test.ts`, "removes the code from the snapshot as soon as
+the Doinsport booking is canceled") et par calcul (5 vrais codes de production observés
+dans le snapshot le 2026-09-13, terrains "Padel 1"/"Padel 4").
 
 ---
 

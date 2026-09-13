@@ -403,6 +403,68 @@ describe("BookingsAdminService", () => {
     expect(entries.some((e) => e.action === "BOOKING_ADMIN_PARTICIPANT_REMOVED")).toBe(true);
   });
 
+  /**
+   * Demande explicite du club (2026-09-12) : voir les codes en clair pour
+   * l'accueil, y compris pour les réservations purement Doinsport (jamais
+   * passées par le checkout V2, donc sans `AccessGrant`) — synchronisées en
+   * même temps que les réservations, même principe que le planning
+   * (`listLegacyForDashboard`).
+   */
+  it("shows the decrypted PIN for a V2 grant and merges in Doinsport-only codes, without a booking link for the latter", async () => {
+    const booking = await createConfirmedBooking(24);
+    const service = buildService();
+    const accessGrantService = buildTestAccessGrantService(prisma, { ...loadConfig(), V2_ACCESS_ENABLED: true });
+    await accessGrantService.provisionOrImportForBooking(booking);
+
+    const legacyClient = await prisma.legacyClient.create({
+      data: { externalId: `ext-access-${Date.now()}-${Math.random()}`, firstName: "Marc", lastName: "Doinsport", lastSyncedAt: new Date() },
+    });
+    await prisma.legacyBooking.create({
+      data: {
+        externalId: `legacy-access-${Date.now()}`,
+        courtId,
+        legacyClientId: legacyClient.externalId,
+        startAt: new Date(Date.now() + 25 * 3600_000),
+        endAt: new Date(Date.now() + 26 * 3600_000),
+        canceled: false,
+        accessCodes: [{ code: "7788#", playgroundName: "Padel Test" }],
+        lastSyncedAt: new Date(),
+      },
+    });
+
+    const rows = await service.listAccessGrants(new Date(Date.now() - 3600_000).toISOString(), new Date(Date.now() + 72 * 3600_000).toISOString());
+
+    const v2Row = rows.find((r) => r.bookingId === booking.id);
+    expect(v2Row?.code).toMatch(/^\d{4}#$/);
+    expect(v2Row).not.toHaveProperty("codeCiphertext");
+
+    const legacyRow = rows.find((r) => r.code === "7788#");
+    expect(legacyRow?.origin).toBe("LEGACY_ONLY");
+    expect(legacyRow?.bookingId).toBeNull();
+    expect(legacyRow?.booking.organizer).toEqual({ firstName: "Marc", lastName: "Doinsport", email: "" });
+  });
+
+  it("falls back to a generic name for a Doinsport-only code when the client isn't resolved, and never lists a canceled booking's code as active", async () => {
+    const service = buildService();
+    await prisma.legacyBooking.create({
+      data: {
+        externalId: `legacy-access-unresolved-${Date.now()}`,
+        courtId,
+        startAt: new Date(Date.now() + 25 * 3600_000),
+        endAt: new Date(Date.now() + 26 * 3600_000),
+        canceled: true,
+        accessCodes: [{ code: "3344#" }],
+        lastSyncedAt: new Date(),
+      },
+    });
+
+    const rows = await service.listAccessGrants(new Date(Date.now() - 3600_000).toISOString(), new Date(Date.now() + 72 * 3600_000).toISOString());
+    const row = rows.find((r) => r.code === "3344#");
+
+    expect(row?.booking.organizer).toEqual({ firstName: "Client", lastName: "Doinsport", email: "" });
+    expect(row?.status).toBe("REVOKED");
+  });
+
   it("rejects removing an unknown participant", async () => {
     const booking = await createPendingBooking();
     const service = buildService();

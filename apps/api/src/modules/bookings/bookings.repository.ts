@@ -1,4 +1,5 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { PrismaClient } from "@prisma/client";
 import type { BookingStatus } from "./booking-state-machine.js";
 
 export class BookingsRepository {
@@ -116,7 +117,33 @@ export class BookingsRepository {
         revokedAt: true,
         providerReference: true,
         createdAt: true,
+        codeCiphertext: true,
+        codeIv: true,
         booking: { select: { startAt: true, court: { select: { name: true } }, organizer: { select: { firstName: true, lastName: true, email: true } } } },
+      },
+    });
+  }
+
+  /**
+   * CDC §55 écran 22 — codes d'accès Doinsport pour les réservations
+   * purement Legacy (jamais passées par le checkout V2, donc sans
+   * `AccessGrant`). Demande explicite (2026-09-12) : la synchro des codes
+   * doit couvrir tout Doinsport, pas seulement V2/Dual Run — même logique
+   * que `listLegacyOccupationsInRange` pour le planning.
+   */
+  listLegacyAccessCodesInRange(fromDate: Date, toDate: Date) {
+    return this.db.legacyBooking.findMany({
+      where: { startAt: { gte: fromDate, lt: toDate }, accessCodes: { not: Prisma.JsonNull } },
+      orderBy: { startAt: "desc" },
+      select: {
+        id: true,
+        startAt: true,
+        endAt: true,
+        canceled: true,
+        lastSyncedAt: true,
+        accessCodes: true,
+        court: { select: { name: true } },
+        legacyClient: { select: { firstName: true, lastName: true } },
       },
     });
   }

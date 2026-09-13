@@ -67,6 +67,7 @@ import { ZoneAccessMarginsAdapter } from "./modules/automation/zone-access-margi
 import { StaffAccessCodeRepository } from "./modules/automation/staff-access-code.repository.js";
 import { StaffAccessCodeService } from "./modules/automation/staff-access-code.service.js";
 import { createStaffAccessCodeRouter } from "./modules/automation/staff-access-code.routes.js";
+import { DoinsportAccessCodeRepository } from "./modules/automation/doinsport-access-code.repository.js";
 import { LightScheduleRepository } from "./modules/automation/light-schedule.repository.js";
 import { AutomationService } from "./modules/automation/automation.service.js";
 import { createAutomationRouter } from "./modules/automation/automation.routes.js";
@@ -302,6 +303,7 @@ export function createApp({
     accessGrantRepository,
     new LightScheduleRepository(prisma),
     staffAccessCodeService,
+    new DoinsportAccessCodeRepository(prisma),
     config,
   );
   app.use("/api/v1", createAutomationRouter(automationService, config, auditLogService));

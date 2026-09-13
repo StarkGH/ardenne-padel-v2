@@ -12,3 +12,8 @@ next-env.d.ts
 
 # État local du pont Raspberry de test (apps/api/src/scripts/raspberry_bridge.py)
 apps/api/executed_commands.json
+
+# État local du service Raspberry Phase B (apps/api/src/scripts/ardenne_access_service.py)
+# — cache/état généré à l'exécution, jamais versionné.
+apps/api/src/scripts/executed_commands.json
+apps/api/src/scripts/ardenne_access.db

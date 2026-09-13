@@ -10,6 +10,7 @@ import { ZoneRepository } from "./zone.repository.js";
 import { LightScheduleRepository } from "./light-schedule.repository.js";
 import { StaffAccessCodeRepository } from "./staff-access-code.repository.js";
 import { StaffAccessCodeService } from "./staff-access-code.service.js";
+import { DoinsportAccessCodeRepository } from "./doinsport-access-code.repository.js";
 import { AutomationService } from "./automation.service.js";
 
 /**
@@ -57,7 +58,8 @@ describe("AutomationService", () => {
     const grantRepo = new AccessGrantRepository(prisma);
     const lightScheduleRepo = new LightScheduleRepository(prisma);
     const staffAccessCodeService = new StaffAccessCodeService(new StaffAccessCodeRepository(prisma), zoneRepo, config);
-    const service = new AutomationService(deviceRepo, zoneRepo, grantRepo, lightScheduleRepo, staffAccessCodeService, config);
+    const doinsportAccessCodeRepo = new DoinsportAccessCodeRepository(prisma);
+    const service = new AutomationService(deviceRepo, zoneRepo, grantRepo, lightScheduleRepo, staffAccessCodeService, doinsportAccessCodeRepo, config);
     const accessGrantService = new AccessGrantService(grantRepo, new LocalAccessProvider(), {
       ...config,
       V2_ACCESS_ENABLED: true,
@@ -131,13 +133,17 @@ describe("AutomationService", () => {
   });
 
   /**
-   * CDC §35/§78 : AccessGrantService.importLegacyGrant utilise le libellé
-   * Doinsport (`playgroundName`) comme `scope`, pas l'UUID V2 du terrain —
-   * contrairement aux grants V2_GENERATED. Une zone doit donc rapprocher les
-   * grants par `courtId` ET par nom de terrain, sinon tous les codes Legacy
-   * importés disparaîtraient silencieusement du snapshot.
+   * Bug corrigé le 2026-09-13 (vérifié sur données réelles) :
+   * `AccessGrantService.importLegacyGrant` utilisait `playgroundName` comme
+   * `scope` pour un grant `LEGACY_IMPORTED` — mais ce champ Doinsport
+   * contient en réalité le(s) nom(s) du/des participant(s) ("Coenen",
+   * "Fernandes / Coenen"...), jamais le terrain. Un grant scopé sur un nom
+   * de participant ne matchait plus jamais aucune zone, le rendant
+   * silencieusement invisible au Raspberry. Corrigé : `scope = booking.courtId`
+   * dans tous les cas, exactement comme `V2_GENERATED` — `playgroundName`
+   * n'est plus utilisé du tout pour le scope.
    */
-  it("routes both V2_GENERATED (matched by courtId) and LEGACY_IMPORTED (matched by court name) grants to the Raspberry", async () => {
+  it("routes both V2_GENERATED and LEGACY_IMPORTED grants to the Raspberry, both matched by courtId (playgroundName is never trusted for scope)", async () => {
     const { service, accessGrantService } = buildService();
     await service.createZone({ key: courtId, type: "GENERIC", label: "Terrain test", courtId });
     const { deviceId } = await service.registerDevice({ name: "Raspberry dual-run" });
@@ -146,14 +152,16 @@ describe("AutomationService", () => {
     await accessGrantService.provisionOrImportForBooking(v2Booking);
 
     const legacyBooking = await createBookingRow(11);
-    await accessGrantService.provisionOrImportForBooking(legacyBooking, [{ code: "4242#", playgroundName: courtName }]);
+    // playgroundName porte ici un nom de participant, comme le fait réellement
+    // Doinsport — la correspondance ne doit jamais en dépendre.
+    await accessGrantService.provisionOrImportForBooking(legacyBooking, [{ code: "4242#", playgroundName: "Coenen" }]);
 
     const snapshot = await service.buildSnapshot(deviceId, undefined);
     const origins = snapshot.body!.grants.map((g) => g.origin).sort();
     expect(origins).toEqual(["LEGACY_IMPORTED", "V2_GENERATED"]);
     const legacyGrant = snapshot.body!.grants.find((g) => g.origin === "LEGACY_IMPORTED");
     expect(legacyGrant?.code).toBe("4242#");
-    expect(legacyGrant?.scope).toBe(courtName);
+    expect(legacyGrant?.scope).toBe(courtId);
   });
 
   it("records reported events idempotently by (deviceId, eventId)", async () => {
@@ -354,6 +362,90 @@ describe("AutomationService", () => {
       expect(staffGrant!.code).toMatch(/^\d{4}#$/);
       // N'apparaît jamais sur une autre zone que celle assignée (jamais universel).
       expect(snapshot.body!.grants.filter((g) => g.origin === "STAFF_MASTER")).toHaveLength(1);
+    });
+  });
+
+  /**
+   * Demande explicite (2026-09-13) : le Raspberry doit aussi stocker/valider
+   * les codes des réservations purement Doinsport (jamais passées par le
+   * checkout V2), et perdre le code dès que la réservation est annulée côté
+   * Doinsport — sans logique de révocation séparée, juste `canceled` sur la
+   * `LegacyBooking` (même champ que la synchro des réservations elle-même).
+   */
+  describe("codes Doinsport-only dans le snapshot", () => {
+    async function createLegacyBookingRow(hour: number, accessCodes: Array<{ code?: string; playgroundName?: string }>, canceled = false) {
+      const start = new Date();
+      start.setDate(start.getDate() + 1);
+      start.setHours(hour, 0, 0, 0);
+      return prisma.legacyBooking.create({
+        data: {
+          externalId: `legacy-${Date.now()}-${Math.random()}`,
+          court: { connect: { id: courtId } },
+          startAt: start,
+          endAt: new Date(start.getTime() + 3600_000),
+          canceled,
+          accessCodes,
+          lastSyncedAt: new Date(),
+        },
+      });
+    }
+
+    it("includes a non-canceled Doinsport-only booking's code, scoped by court name", async () => {
+      const { service } = buildService();
+      await service.createZone({ key: courtId, type: "GENERIC", label: "Terrain test", courtId });
+      const { deviceId } = await service.registerDevice({ name: "Raspberry Doinsport-only" });
+      await createLegacyBookingRow(9, [{ code: "1122#", playgroundName: courtName }]);
+
+      const snapshot = await service.buildSnapshot(deviceId, undefined);
+      const grant = snapshot.body!.grants.find((g) => g.origin === "LEGACY_ONLY");
+      expect(grant).toBeDefined();
+      expect(grant!.code).toBe("1122#");
+      expect(grant!.scope).toBe(courtName);
+    });
+
+    it("removes the code from the snapshot as soon as the Doinsport booking is canceled", async () => {
+      const { service } = buildService();
+      await service.createZone({ key: courtId, type: "GENERIC", label: "Terrain test", courtId });
+      const { deviceId } = await service.registerDevice({ name: "Raspberry Doinsport-only annulé" });
+      const legacyBooking = await createLegacyBookingRow(10, [{ code: "3344#", playgroundName: courtName }]);
+
+      const before = await service.buildSnapshot(deviceId, undefined);
+      expect(before.body!.grants.some((g) => g.code === "3344#")).toBe(true);
+
+      // Simule ce que fait la synchro Legacy quand Doinsport marque la réservation annulée.
+      await prisma.legacyBooking.update({ where: { id: legacyBooking.id }, data: { canceled: true } });
+
+      const after = await service.buildSnapshot(deviceId, undefined);
+      expect(after.body!.grants.some((g) => g.code === "3344#")).toBe(false);
+    });
+
+    it("never duplicates a Dual Run booking's code as LEGACY_ONLY — it already has its own AccessGrant", async () => {
+      const { service, accessGrantService } = buildService();
+      await service.createZone({ key: courtId, type: "GENERIC", label: "Terrain test", courtId });
+      const { deviceId } = await service.registerDevice({ name: "Raspberry dual-run pas de doublon" });
+
+      const booking = await createBookingRow(11);
+      await accessGrantService.provisionOrImportForBooking(booking, [{ code: "5566#", playgroundName: courtName }]);
+      await prisma.legacyBookingMapping.create({
+        data: { bookingId: booking.id, legacyBookingId: "doinsport-ext-id-5566", correlationMarker: `marker-${Date.now()}` },
+      });
+      // La même réservation existe aussi côté LegacyBooking (résultat normal de la synchro Dual Run).
+      await prisma.legacyBooking.create({
+        data: {
+          externalId: "doinsport-ext-id-5566",
+          court: { connect: { id: courtId } },
+          startAt: booking.startAt,
+          endAt: booking.endAt,
+          canceled: false,
+          accessCodes: [{ code: "5566#", playgroundName: courtName }],
+          lastSyncedAt: new Date(),
+        },
+      });
+
+      const snapshot = await service.buildSnapshot(deviceId, undefined);
+      const matches = snapshot.body!.grants.filter((g) => g.code === "5566#");
+      expect(matches).toHaveLength(1);
+      expect(matches[0]!.origin).toBe("LEGACY_IMPORTED");
     });
   });
 

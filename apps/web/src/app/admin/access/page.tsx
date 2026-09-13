@@ -16,7 +16,18 @@ const STATUS_LABELS: Record<string, string> = {
   FAILED: "Échec",
 };
 
-// CDC §55 écran 22 — accès. Le code chiffré n'est jamais transmis (CDC §57.1).
+const ORIGIN_LABELS: Record<string, string> = {
+  V2_GENERATED: "Généré V2",
+  LEGACY_IMPORTED: "Importé Legacy (Dual Run)",
+  LEGACY_ONLY: "Doinsport (non synchronisé V2)",
+};
+
+// CDC §55 écran 22 — accès. Le code n'est jamais stocké en clair en base
+// (CDC §57.1/§34.4) mais est déchiffré ici pour l'accueil (demande explicite
+// du club, 2026-09-12) : le staff doit pouvoir le communiquer/vérifier.
+// Inclut aussi les codes des réservations purement Doinsport, synchronisés
+// en même temps que les réservations (même demande, 2026-09-12) — ces
+// codes-là n'ont pas de réservation V2 correspondante, donc pas de lien.
 export default function AdminAccessPage() {
   const [grants, setGrants] = useState<AdminAccessGrant[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,15 +53,24 @@ export default function AdminAccessPage() {
         {grants.map((g) => (
           <Card key={g.id} className="flex items-center justify-between gap-3">
             <div>
-              <Link href={`/admin/bookings/${g.bookingId}`} className="text-sm font-medium text-accent-600">
-                {g.booking.organizer.firstName} {g.booking.organizer.lastName}
-              </Link>
+              {g.bookingId ? (
+                <Link href={`/admin/bookings/${g.bookingId}`} className="text-sm font-medium text-accent-600">
+                  {g.booking.organizer.firstName} {g.booking.organizer.lastName}
+                </Link>
+              ) : (
+                <p className="text-sm font-medium">
+                  {g.booking.organizer.firstName} {g.booking.organizer.lastName}
+                </p>
+              )}
               <p className="text-xs text-slate-500">
                 {g.booking.court.name} · <span className="capitalize">{formatDateTime(g.booking.startAt)}</span>
               </p>
-              <p className="text-xs text-slate-400">{g.origin === "V2_GENERATED" ? "Généré V2" : "Importé Legacy"}</p>
+              <p className="text-xs text-slate-400">{ORIGIN_LABELS[g.origin] ?? g.origin}</p>
             </div>
-            <span className={`text-xs font-medium ${g.status === "FAILED" ? "text-red-600" : "text-slate-500"}`}>{STATUS_LABELS[g.status] ?? g.status}</span>
+            <div className="flex flex-col items-end gap-1">
+              <span className="rounded-md bg-slate-800 px-2 py-1 font-mono text-sm font-semibold text-accent-400">{g.code}</span>
+              <span className={`text-xs font-medium ${g.status === "FAILED" ? "text-red-600" : "text-slate-500"}`}>{STATUS_LABELS[g.status] ?? g.status}</span>
+            </div>
           </Card>
         ))}
         {grants.length === 0 && <p className="text-sm text-slate-500">Aucun accès dans cette période.</p>}
