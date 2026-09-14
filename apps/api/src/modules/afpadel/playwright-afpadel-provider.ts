@@ -6,17 +6,22 @@ import type { AfpadelProvider, AfpMemberListRow, AfpPlayerDetail } from "./afpad
 /**
  * Connecteur réel, sur le même modèle que
  * `padel-service/tournament/server/afpadel/PlaywrightAfPadelProvider.ts`
- * (déjà validé en conditions réelles sur mon.afpadel.be) :
- * - AFPadel est une SPA Inertia.js — chaque page embarque son état complet
- *   en JSON dans l'attribut `data-page` de `#app`, bien plus fiable que des
- *   sélecteurs DOM pour des données structurées (fiche joueur notamment).
- * - La liste des membres du club, elle, n'a été inspectée qu'une fois via
- *   capture d'écran (pas encore en conditions réelles avec un compte) — le
- *   parsing ci-dessous lit le texte visible de chaque ligne
- *   ("{id} - {nom} ({icône} {♂|♀} - {points})", confirmé sur la capture
- *   fournie le 2026-09-14) plutôt que de deviner la forme des props
- *   Inertia. `raw` conserve tout (innerHTML) pour permettre d'affiner sans
- *   nouveau déploiement si le format diffère en pratique.
+ * (déjà validé en conditions réelles sur mon.afpadel.be) : AFPadel est une
+ * SPA Inertia.js — chaque page embarque son état complet en JSON.
+ *
+ * Pagination de /club confirmée réelle le 2026-09-14 par inspection directe
+ * (voir apps/api/src/scripts/diagnose-afpadel.ts, supprimé une fois ceci
+ * validé) : cliquer "Suivant" déclenche un fetch Vue interne (pas une
+ * vraie navigation Inertia — l'attribut `data-page` de `#app` ne se met
+ * jamais à jour), mais cette requête est directement rejouable via
+ * `page.request.get` avec les en-têtes `X-Inertia`/`X-Inertia-Version`
+ * (celle-ci lue sur le chargement initial), en faisant varier `from`. La
+ * pagination n'est PAS un simple `page=N` : c'est une fenêtre glissante de
+ * 100 éléments — `from=100` sur un club de 117 membres renvoie la fenêtre
+ * [17,116] (toujours 100 résultats, chevauchant la page précédente plutôt
+ * que de renvoyer un reliquat de 17), `paging.next` indique le prochain
+ * `from` à utiliser (`-1` = dernière page). D'où la déduplication par id
+ * dans la boucle ci-dessous : indispensable, pas une simple précaution.
  */
 
 export interface PlaywrightAfpadelConfig {
@@ -34,16 +39,27 @@ const SELECTORS = {
   loginPassword: "input#password",
   loginSubmit: 'button[type="submit"]',
   loggedInMarker: 'a[href*="/logout"]',
-  memberRow: "li",
-  nextPageButton: 'button:has-text("Suivant"), a:has-text("Suivant")',
 } as const;
 
 const DEFAULT_TIMEOUT_MS = 20000;
 
-// "9234014 - Aimery Léonard (♂ - 205)" — capture id / nom / symbole de genre / points.
-// L'icône de catégorie (trophée/graduation/soleil) est une icône SVG/font sans texte : elle est
-// lue séparément (titre/aria-label/classe) plutôt que dans ce texte, cf. parseMemberRow.
-const MEMBER_ROW_PATTERN = /^(\d+)\s*-\s*(.+?)\s*\(([^)]*)\)\s*$/;
+// Champs confirmés réels le 2026-09-14 sur props.players[] de la réponse
+// JSON de /club (voir commentaire de tête de fichier).
+interface RawAfpPlayerListEntry {
+  id: number;
+  official_name: string;
+  sex: string | null;
+  license_name: string | null;
+  points: number | null;
+}
+
+interface ClubPageResponse {
+  version: string;
+  props: {
+    players: RawAfpPlayerListEntry[];
+    paging: { from: number; to: number; total: number; next: number; prev: number };
+  };
+}
 
 export class PlaywrightAfpadelProvider implements AfpadelProvider {
   private readonly config: Required<Omit<PlaywrightAfpadelConfig, "dataDir">> & { dataDir: string };
@@ -121,27 +137,14 @@ export class PlaywrightAfpadelProvider implements AfpadelProvider {
     await this.authenticate();
   }
 
-  /**
-   * Extrait `{id, fullName, gender, points}` du texte visible d'une ligne
-   * ("9234014 - Aimery Léonard (♂ - 205)"), et la catégorie depuis l'icône
-   * précédant le symbole de genre (titre/aria-label si présent, sinon la
-   * classe CSS brute — à affiner après un premier passage réel, cf. commentaire
-   * de tête de fichier).
-   */
-  private async parseMemberRow(rowText: string, rowHtml: string): Promise<AfpMemberListRow | null> {
-    const match = MEMBER_ROW_PATTERN.exec(rowText.trim());
-    if (!match) return null;
-    const [, idRaw, fullName, inside] = match;
-    const genderMatch = /[♂♀]/.exec(inside!);
-    const pointsMatch = /(\d+)\s*\)?$/.exec(inside!) ?? /(\d+)/.exec(inside!);
-    const categoryTitleMatch = /title="([^"]+)"|aria-label="([^"]+)"/.exec(rowHtml);
+  private toMemberRow(entry: RawAfpPlayerListEntry): AfpMemberListRow {
     return {
-      afpPlayerId: Number(idRaw),
-      fullName: fullName!.trim(),
-      gender: genderMatch ? genderMatch[0] : null,
-      category: categoryTitleMatch ? categoryTitleMatch[1] ?? categoryTitleMatch[2] ?? null : null,
-      points: pointsMatch ? Number(pointsMatch[1]) : null,
-      raw: { text: rowText.trim(), html: rowHtml },
+      afpPlayerId: entry.id,
+      fullName: entry.official_name,
+      gender: entry.sex ?? null,
+      category: entry.license_name ?? null,
+      points: entry.points ?? null,
+      raw: entry,
     };
   }
 
@@ -149,42 +152,49 @@ export class PlaywrightAfpadelProvider implements AfpadelProvider {
     const page = await this.getPage();
     await this.ensureAuthenticated(page);
     await page.goto(this.config.clubUrl, { waitUntil: "domcontentloaded", timeout: this.config.timeoutMs });
+    const initial = await this.readFullInertiaPage<ClubPageResponse>(page);
 
     const members: AfpMemberListRow[] = [];
     const seenIds = new Set<number>();
-    let pageIndex = 0;
-    const maxPages = 50; // garde-fou anti-boucle infinie si la pagination ne se termine jamais comme attendu.
-
-    while (pageIndex < maxPages) {
-      const rows = page.locator(SELECTORS.memberRow).filter({ hasText: /^\s*\d+\s*-/ });
-      const count = await rows.count();
-      let addedThisPage = 0;
-      for (let i = 0; i < count; i++) {
-        const row = rows.nth(i);
-        const [text, html] = await Promise.all([row.innerText(), row.innerHTML()]);
-        const parsed = await this.parseMemberRow(text, html);
-        if (parsed && !seenIds.has(parsed.afpPlayerId)) {
-          seenIds.add(parsed.afpPlayerId);
-          members.push(parsed);
-          addedThisPage++;
-        }
+    const addPage = (data: ClubPageResponse) => {
+      for (const entry of data.props.players) {
+        if (seenIds.has(entry.id)) continue;
+        seenIds.add(entry.id);
+        members.push(this.toMemberRow(entry));
       }
-      logger.info({ event: "AfpadelMemberPageParsed", pageIndex, addedThisPage, totalSoFar: members.length }, "page de membres AFPadel lue");
+    };
+    addPage(initial);
 
-      const nextButton = page.locator(SELECTORS.nextPageButton).first();
-      const hasNext = (await nextButton.count()) > 0 && (await nextButton.isEnabled().catch(() => false));
-      if (!hasNext || addedThisPage === 0) break;
-      await Promise.all([page.waitForLoadState("networkidle", { timeout: this.config.timeoutMs }).catch(() => {}), nextButton.click()]);
-      pageIndex++;
+    let next = initial.props.paging.next;
+    let iterations = 0;
+    const maxIterations = 50; // garde-fou anti-boucle infinie si `next` ne finit jamais par valoir -1.
+    while (next >= 0 && iterations < maxIterations) {
+      const url = `${this.config.clubUrl}?filters[elo][]=50&filters[elo][]=3500&filters[search]=&license_year=6&from=${next}`;
+      const response = await page.request.get(url, {
+        headers: { "X-Inertia": "true", "X-Inertia-Version": initial.version, Accept: "application/json" },
+      });
+      if (!response.ok()) {
+        throw new Error(`Pagination AFPadel : réponse ${response.status()} pour from=${next}`);
+      }
+      const data = (await response.json()) as ClubPageResponse;
+      addPage(data);
+      logger.info({ event: "AfpadelMemberPageParsed", from: next, totalSoFar: members.length }, "page de membres AFPadel lue");
+      next = data.props.paging.next;
+      iterations++;
     }
 
     return members;
   }
 
-  private async readInertiaProps<T>(page: Page): Promise<T> {
+  private async readFullInertiaPage<T extends { version: string }>(page: Page): Promise<T> {
     const raw = await page.locator("#app").getAttribute("data-page");
-    if (!raw) throw new Error("Données de page (Inertia data-page) introuvables sur la fiche joueur AFPadel.");
-    return JSON.parse(raw).props as T;
+    if (!raw) throw new Error("Données de page (Inertia data-page) introuvables.");
+    return JSON.parse(raw) as T;
+  }
+
+  private async readInertiaProps<T>(page: Page): Promise<T> {
+    const full = await this.readFullInertiaPage<{ version: string; props: T }>(page);
+    return full.props;
   }
 
   async getPlayerDetail(afpPlayerId: number): Promise<AfpPlayerDetail> {

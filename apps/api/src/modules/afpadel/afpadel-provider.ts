@@ -8,6 +8,11 @@ import type { AppConfig } from "@ardenne/config";
  * connecteur a déjà été validé en conditions réelles).
  */
 
+/**
+ * Champs confirmés réels le 2026-09-14 (inspection directe de la réponse
+ * JSON de mon.afpadel.be/club, props.players[]) : `sex` ("H"/"F"),
+ * `license_name` (catégorie de licence — "Junior" observé), `points`.
+ */
 export interface AfpMemberListRow {
   afpPlayerId: number;
   fullName: string;
