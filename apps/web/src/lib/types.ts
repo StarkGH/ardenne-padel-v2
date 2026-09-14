@@ -467,6 +467,24 @@ export interface AdminAccessGrant {
   booking: { startAt: string; court: { name: string }; organizer: { firstName: string; lastName: string; email: string } };
 }
 
+// --- AFPadel (fédération) — import de l'effectif du club ---
+export interface AdminAfpMember {
+  id: string;
+  afpPlayerId: number;
+  fullName: string;
+  gender: string | null;
+  category: string | null;
+  points: number | null;
+  detailSyncedAt: string | null;
+  updatedAt: string;
+}
+
+export interface AdminAfpadelSyncStatus {
+  syncing: boolean;
+  lastRunAt: string | null;
+  lastResult: { membersFound: number; detailsSynced: number; errors: string[] } | null;
+}
+
 // --- Automatisation physique (Raspberry) — Phase 1 : données uniquement ---
 export interface AdminAutomationDevice {
   id: string;

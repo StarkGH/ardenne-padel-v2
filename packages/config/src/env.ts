@@ -129,6 +129,19 @@ const envSchema = z.object({
   // chiffre d'affaires admin, puisqu'un taux de TVA est par nature une règle
   // susceptible de changer (cf. commentaire en tête de fichier).
   BOOKING_VAT_RATE_PERCENT: z.coerce.number().nonnegative().default(6),
+
+  // --- AFPadel (fédération, mon.afpadel.be) — import de l'effectif du club.
+  // Optionnelles : tant que AFPADEL_URL_LOGIN/AFPADEL_URL_CLUB/AFPADEL_LOGIN/
+  // AFPADEL_PASSWORD ne sont pas toutes renseignées, la synchro reste
+  // désactivée plutôt que de faire échouer le démarrage (même principe que
+  // LEGACY_* : une intégration externe absente ne doit jamais bloquer le
+  // reste de l'application). Repris du connecteur déjà validé en conditions
+  // réelles dans le projet `tournament` (server/afpadel/PlaywrightAfPadelProvider.ts).
+  AFPADEL_URL_LOGIN: z.string().optional(),
+  AFPADEL_URL_CLUB: z.string().optional(),
+  AFPADEL_LOGIN: z.string().optional(),
+  AFPADEL_PASSWORD: z.string().optional(),
+  AFPADEL_HEADLESS: boolFromString.default("true"),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

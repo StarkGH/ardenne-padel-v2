@@ -1389,3 +1389,30 @@ model ClientNote {
   @@index([userId])
   @@map("client_notes")
 }
+
+// =====================================================================
+// AFPadel (fédération, mon.afpadel.be) — import de l'effectif du club
+// =====================================================================
+
+/// Effectif du club lu sur mon.afpadel.be/club (liste paginée) puis complété
+/// terrain par terrain via /player/{id} (demande explicite 2026-09-14).
+/// `rawListData`/`rawPlayerData` conservent la réponse brute (props Inertia)
+/// tant que la structure exacte de chaque page n'est pas figée par l'usage
+/// réel — même précaution que `LegacyBooking.accessCodes` : on ne perd
+/// jamais un champ qu'on n'a pas encore modélisé explicitement.
+model AfpMember {
+  id            String    @id @default(uuid())
+  afpPlayerId   Int       @unique @map("afp_player_id")
+  licenseNumber String?   @map("license_number")
+  fullName      String    @map("full_name")
+  gender        String?
+  category      String?
+  points        Int?
+  rawListData   Json?     @map("raw_list_data")
+  rawPlayerData Json?     @map("raw_player_data")
+  detailSyncedAt DateTime? @map("detail_synced_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("afp_members")
+}

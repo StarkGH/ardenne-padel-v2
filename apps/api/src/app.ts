@@ -68,6 +68,11 @@ import { StaffAccessCodeRepository } from "./modules/automation/staff-access-cod
 import { StaffAccessCodeService } from "./modules/automation/staff-access-code.service.js";
 import { createStaffAccessCodeRouter } from "./modules/automation/staff-access-code.routes.js";
 import { DoinsportAccessCodeRepository } from "./modules/automation/doinsport-access-code.repository.js";
+import { NullAfpadelProvider, isAfpadelConfigured } from "./modules/afpadel/afpadel-provider.js";
+import { PlaywrightAfpadelProvider } from "./modules/afpadel/playwright-afpadel-provider.js";
+import { AfpMemberRepository } from "./modules/afpadel/afp-member.repository.js";
+import { AfpadelSyncService } from "./modules/afpadel/afpadel-sync.service.js";
+import { createAfpadelRouter } from "./modules/afpadel/afpadel.routes.js";
 import { LightScheduleRepository } from "./modules/automation/light-schedule.repository.js";
 import { AutomationService } from "./modules/automation/automation.service.js";
 import { createAutomationRouter } from "./modules/automation/automation.routes.js";
@@ -307,6 +312,20 @@ export function createApp({
     config,
   );
   app.use("/api/v1", createAutomationRouter(automationService, config, auditLogService));
+
+  // --- AFPadel (fédération) — import de l'effectif du club ---
+  const afpadelProvider = isAfpadelConfigured(config)
+    ? new PlaywrightAfpadelProvider({
+        loginUrl: config.AFPADEL_URL_LOGIN!,
+        clubUrl: config.AFPADEL_URL_CLUB!,
+        login: config.AFPADEL_LOGIN!,
+        password: config.AFPADEL_PASSWORD!,
+        headless: config.AFPADEL_HEADLESS,
+      })
+    : new NullAfpadelProvider();
+  const afpMemberRepository = new AfpMemberRepository(prisma);
+  const afpadelSyncService = new AfpadelSyncService(afpadelProvider, afpMemberRepository);
+  app.use("/api/v1", createAfpadelRouter(afpadelSyncService, afpMemberRepository));
   app.use("/api/v1", createStaffAccessCodeRouter(staffAccessCodeService, auditLogService));
 
   app.use("/api/v1", createNotificationsRouter(notificationService));
