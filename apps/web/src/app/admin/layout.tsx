@@ -56,6 +56,7 @@ const NAV_GROUPS: Array<{ label: string; links: Array<{ href: string; label: str
       { href: "/admin/sync", label: "Synchro Legacy" },
       { href: "/admin/access", label: "Accès" },
       { href: "/admin/automation", label: "Automatisation" },
+      { href: "/admin/automation/test-code", label: "Tester un code" },
     ],
   },
   {
