@@ -16,6 +16,10 @@ const NAV_GROUPS: Array<{ label: string; links: Array<{ href: string; label: str
     links: [{ href: "/admin/dashboard", label: "Tableau de bord" }],
   },
   {
+    label: "Raccourcis",
+    links: [{ href: "/admin/afp-members", label: "AFP - Ardenne Padel" }],
+  },
+  {
     label: "Réservations",
     links: [
       { href: "/admin/planning", label: "Planning" },
