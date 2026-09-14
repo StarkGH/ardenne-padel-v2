@@ -16,6 +16,7 @@
     "seed": "tsx --conditions=development prisma/seed.ts",
     "import:legacy": "tsx --conditions=development src/scripts/import-legacy.ts",
     "provision:admin": "node dist/scripts/provision-admin.js",
+    "provision:zones": "node dist/scripts/provision-zones.js",
     "simulate:automation-device": "tsx --conditions=development src/scripts/simulate-automation-device.ts"
   },
   "dependencies": {
