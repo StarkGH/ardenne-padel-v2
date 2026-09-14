@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, API_BASE_URL } from "@/lib/api";
 import { formatDateTime } from "@/lib/datetime";
 import { Button, Card, ErrorBanner, Spinner } from "@/components/ui";
 import type { AdminAfpMember, AdminAfpadelSyncStatus } from "@/lib/types";
@@ -65,9 +65,17 @@ export default function AdminAfpMembersPage() {
           <h1 className="text-xl font-bold">AFP — Ardenne Padel</h1>
           <p className="text-sm text-slate-500">Effectif du club importé depuis mon.afpadel.be.</p>
         </div>
-        <Button className="!w-auto" disabled={triggering || syncStatus?.syncing} onClick={triggerSync}>
-          {syncStatus?.syncing ? "Synchronisation en cours…" : "Synchroniser"}
-        </Button>
+        <div className="flex gap-2">
+          <a
+            href={`${API_BASE_URL}/admin/afp-members/export`}
+            className="flex min-h-11 w-auto items-center rounded-full border-2 border-white bg-transparent px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-white/10 active:bg-white/15"
+          >
+            Exporter (CSV)
+          </a>
+          <Button className="!w-auto" disabled={triggering || syncStatus?.syncing} onClick={triggerSync}>
+            {syncStatus?.syncing ? "Synchronisation en cours…" : "Synchroniser"}
+          </Button>
+        </div>
       </div>
 
       {syncStatus?.lastRunAt && (
