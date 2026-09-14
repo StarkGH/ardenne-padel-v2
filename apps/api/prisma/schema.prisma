@@ -1408,6 +1408,18 @@ model AfpMember {
   gender        String?
   category      String?
   points        Int?
+  // Champs de contact/identité (demande explicite 2026-09-14) — extraits de
+  // rawPlayerData au moment de la synchro de la fiche détaillée, jamais
+  // renseignés avant (colonnes nulles tant que detailSyncedAt est nul).
+  email       String?
+  phone       String?
+  birthdate   DateTime?
+  town        String?
+  address     String?
+  zip         String?
+  clubName    String?   @map("club_name")
+  nationality String?
+  ageCategory String?   @map("age_category")
   rawListData   Json?     @map("raw_list_data")
   rawPlayerData Json?     @map("raw_player_data")
   detailSyncedAt DateTime? @map("detail_synced_at")

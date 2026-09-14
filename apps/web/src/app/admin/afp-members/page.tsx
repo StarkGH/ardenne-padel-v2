@@ -1,30 +1,49 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, ApiError, API_BASE_URL } from "@/lib/api";
 import { formatDateTime } from "@/lib/datetime";
 import { Button, Card, ErrorBanner, Spinner } from "@/components/ui";
 import type { AdminAfpMember, AdminAfpadelSyncStatus } from "@/lib/types";
 
-interface MembersResponse {
-  data: AdminAfpMember[];
-  sync: AdminAfpadelSyncStatus;
+interface Column {
+  key: string;
+  label: string;
+  value: (m: AdminAfpMember) => string;
+  numeric?: boolean;
 }
 
+const COLUMNS: Column[] = [
+  { key: "afpPlayerId", label: "N°", value: (m) => String(m.afpPlayerId), numeric: true },
+  { key: "fullName", label: "Nom", value: (m) => m.fullName },
+  { key: "category", label: "Catégorie", value: (m) => m.category ?? "" },
+  { key: "gender", label: "Sexe", value: (m) => m.gender ?? "" },
+  { key: "points", label: "Points", value: (m) => (m.points !== null ? String(m.points) : ""), numeric: true },
+  { key: "clubName", label: "Club", value: (m) => m.clubName ?? "" },
+  { key: "town", label: "Ville", value: (m) => m.town ?? "" },
+  { key: "phone", label: "Téléphone", value: (m) => m.phone ?? "" },
+  { key: "email", label: "Email", value: (m) => m.email ?? "" },
+  { key: "birthdate", label: "Naissance", value: (m) => (m.birthdate ? m.birthdate.slice(0, 10) : "") },
+];
+
+type SortDir = "asc" | "desc";
+
 // Import de l'effectif du club depuis mon.afpadel.be (demande explicite
-// 2026-09-14). La synchro elle-même tourne en tâche de fond côté serveur
-// (Playwright, une centaine de pages à charger) — cette page ne fait que
-// déclencher un cycle et afficher le dernier état connu.
+// 2026-09-14) — tableau trié/filtré entièrement côté client : l'effectif
+// d'un club (une centaine de membres) ne justifie pas une pagination ou un
+// filtrage serveur.
 export default function AdminAfpMembersPage() {
   const [members, setMembers] = useState<AdminAfpMember[] | null>(null);
   const [syncStatus, setSyncStatus] = useState<AdminAfpadelSyncStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [triggering, setTriggering] = useState(false);
+  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [sort, setSort] = useState<{ key: string; dir: SortDir } | null>(null);
 
   const load = useCallback(() => {
     api
-      .get<MembersResponse["data"]>("/admin/afp-members")
-      .then((data) => setMembers(data))
+      .get<AdminAfpMember[]>("/admin/afp-members")
+      .then(setMembers)
       .catch((err) => setError(err instanceof ApiError ? err.message : "Impossible de charger l'effectif AFPadel."));
     api
       .get<AdminAfpadelSyncStatus>("/admin/afp-members/sync-status")
@@ -55,6 +74,34 @@ export default function AdminAfpMembersPage() {
     }
   }
 
+  function toggleSort(key: string) {
+    setSort((prev) => {
+      if (!prev || prev.key !== key) return { key, dir: "asc" };
+      if (prev.dir === "asc") return { key, dir: "desc" };
+      return null;
+    });
+  }
+
+  const visibleMembers = useMemo(() => {
+    if (!members) return [];
+    let rows = members;
+    for (const col of COLUMNS) {
+      const needle = filters[col.key]?.trim().toLowerCase();
+      if (!needle) continue;
+      rows = rows.filter((m) => col.value(m).toLowerCase().includes(needle));
+    }
+    if (sort) {
+      const col = COLUMNS.find((c) => c.key === sort.key)!;
+      rows = [...rows].sort((a, b) => {
+        const av = col.value(a);
+        const bv = col.value(b);
+        const cmp = col.numeric ? Number(av || 0) - Number(bv || 0) : av.localeCompare(bv, "fr");
+        return sort.dir === "asc" ? cmp : -cmp;
+      });
+    }
+    return rows;
+  }, [members, filters, sort]);
+
   if (error) return <ErrorBanner message={error} />;
   if (!members) return <Spinner />;
 
@@ -63,7 +110,9 @@ export default function AdminAfpMembersPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold">AFP — Ardenne Padel</h1>
-          <p className="text-sm text-slate-500">Effectif du club importé depuis mon.afpadel.be.</p>
+          <p className="text-sm text-slate-500">
+            Effectif du club importé depuis mon.afpadel.be — {visibleMembers.length} / {members.length} membre(s) affiché(s).
+          </p>
         </div>
         <div className="flex gap-2">
           <a
@@ -99,24 +148,53 @@ export default function AdminAfpMembersPage() {
         </Card>
       )}
 
-      <div className="flex flex-col gap-2">
-        {members.map((m) => (
-          <Card key={m.id} className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium">{m.fullName}</p>
-              <p className="text-xs text-slate-500">
-                N° {m.afpPlayerId}
-                {m.category && ` · ${m.category}`}
-                {m.gender && ` · ${m.gender}`}
-              </p>
-            </div>
-            <div className="flex flex-col items-end gap-1">
-              {m.points !== null && <span className="rounded-md bg-slate-800 px-2 py-1 font-mono text-sm font-semibold text-accent-400">{m.points} pts</span>}
-              <span className="text-xs text-slate-500">{m.detailSyncedAt ? `Fiche à jour : ${formatDateTime(m.detailSyncedAt)}` : "Fiche pas encore synchronisée"}</span>
-            </div>
-          </Card>
-        ))}
-        {members.length === 0 && <p className="text-sm text-slate-500">Aucun membre importé pour l&apos;instant — lancez une synchronisation.</p>}
+      <div className="overflow-x-auto rounded-2xl border border-slate-800">
+        <table className="w-full min-w-[900px] border-collapse text-sm">
+          <thead>
+            <tr className="bg-slate-900">
+              {COLUMNS.map((col) => {
+                const active = sort?.key === col.key;
+                return (
+                  <th key={col.key} className="border-b border-slate-800 p-0 text-left">
+                    <button
+                      onClick={() => toggleSort(col.key)}
+                      className="flex w-full items-center gap-1 px-3 py-2 font-semibold text-slate-200 hover:bg-white/5"
+                    >
+                      {col.label}
+                      <span className="text-xs text-accent-400">{active ? (sort!.dir === "asc" ? "▲" : "▼") : ""}</span>
+                    </button>
+                    <div className="px-2 pb-2">
+                      <input
+                        value={filters[col.key] ?? ""}
+                        onChange={(e) => setFilters((f) => ({ ...f, [col.key]: e.target.value }))}
+                        placeholder="Filtrer…"
+                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 placeholder:text-slate-600"
+                      />
+                    </div>
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {visibleMembers.map((m) => (
+              <tr key={m.id} className="border-b border-slate-800/60 hover:bg-white/5">
+                {COLUMNS.map((col) => (
+                  <td key={col.key} className="px-3 py-2 text-slate-300">
+                    {col.value(m) || <span className="text-slate-600">—</span>}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            {visibleMembers.length === 0 && (
+              <tr>
+                <td colSpan={COLUMNS.length} className="px-3 py-6 text-center text-sm text-slate-500">
+                  {members.length === 0 ? "Aucun membre importé pour l'instant — lancez une synchronisation." : "Aucun résultat pour ces filtres."}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );

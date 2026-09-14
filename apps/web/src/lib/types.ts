@@ -475,6 +475,15 @@ export interface AdminAfpMember {
   gender: string | null;
   category: string | null;
   points: number | null;
+  clubName: string | null;
+  nationality: string | null;
+  ageCategory: string | null;
+  email: string | null;
+  phone: string | null;
+  birthdate: string | null;
+  town: string | null;
+  address: string | null;
+  zip: string | null;
   detailSyncedAt: string | null;
   updatedAt: string;
 }
