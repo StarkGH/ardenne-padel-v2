@@ -23,6 +23,7 @@ const COLUMNS: Column[] = [
   { key: "points", label: "Points", value: (m) => (m.points !== null ? String(m.points) : ""), numeric: true, range: true },
   { key: "clubName", label: "Club", value: (m) => m.clubName ?? "" },
   { key: "town", label: "Ville", value: (m) => m.town ?? "" },
+  { key: "zip", label: "Code postal", value: (m) => m.zip ?? "" },
   { key: "phone", label: "Téléphone", value: (m) => m.phone ?? "" },
   { key: "email", label: "Email", value: (m) => m.email ?? "" },
   { key: "birthdate", label: "Naissance", value: (m) => (m.birthdate ? m.birthdate.slice(0, 10) : ""), range: true },
