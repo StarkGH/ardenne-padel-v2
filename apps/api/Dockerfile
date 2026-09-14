@@ -6,7 +6,15 @@ FROM node:20-alpine AS base
 # dynamiquement au runtime — node:20-alpine ne l'installe pas par défaut.
 # Sans ça : "Error loading shared library libssl.so.1.1: No such file or
 # directory" au démarrage, trouvé au premier vrai déploiement (VPS).
-RUN apk add --no-cache openssl
+#
+# `chromium` (paquet Alpine, compilé pour musl) : le Chromium que Playwright
+# télécharge lui-même est compilé pour glibc et ne fonctionne pas sur cette
+# image (voir AFPADEL_CHROMIUM_EXECUTABLE_PATH,
+# packages/config/src/env.ts) — module afpadel (import effectif AFPadel).
+# `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD` évite que `npm ci` perde du temps (et
+# échoue potentiellement) à télécharger ce binaire glibc inutilisable ici.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+RUN apk add --no-cache openssl chromium nss freetype harfbuzz ca-certificates ttf-freefont
 WORKDIR /app
 
 FROM base AS deps
@@ -37,6 +45,9 @@ RUN npm run build:packages \
 # les sources TS.
 FROM base AS runtime
 ENV NODE_ENV=production
+# Chromium natif Alpine (installé dans `base`) plutôt que celui de
+# Playwright (incompatible musl) — voir commentaire de `base` ci-dessus.
+ENV AFPADEL_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/packages/shared/dist ./packages/shared/dist

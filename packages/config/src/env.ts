@@ -142,6 +142,12 @@ const envSchema = z.object({
   AFPADEL_LOGIN: z.string().optional(),
   AFPADEL_PASSWORD: z.string().optional(),
   AFPADEL_HEADLESS: boolFromString.default("true"),
+  // Chemin du binaire Chromium à utiliser (ex. /usr/bin/chromium-browser sur
+  // Alpine, cf. apps/api/Dockerfile) — le Chromium que Playwright télécharge
+  // lui-même est compilé pour glibc et ne fonctionne pas sur node:20-alpine
+  // (musl). Vide en dev : Playwright utilise alors son propre navigateur
+  // téléchargé localement.
+  AFPADEL_CHROMIUM_EXECUTABLE_PATH: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof envSchema>;

@@ -321,6 +321,7 @@ export function createApp({
         login: config.AFPADEL_LOGIN!,
         password: config.AFPADEL_PASSWORD!,
         headless: config.AFPADEL_HEADLESS,
+        chromiumExecutablePath: config.AFPADEL_CHROMIUM_EXECUTABLE_PATH,
       })
     : new NullAfpadelProvider();
   const afpMemberRepository = new AfpMemberRepository(prisma);

@@ -32,6 +32,8 @@ export interface PlaywrightAfpadelConfig {
   headless: boolean;
   timeoutMs?: number;
   dataDir?: string;
+  /** cf. AFPADEL_CHROMIUM_EXECUTABLE_PATH (packages/config/src/env.ts) — Alpine en prod, undefined en dev. */
+  chromiumExecutablePath?: string;
 }
 
 const SELECTORS = {
@@ -62,7 +64,10 @@ interface ClubPageResponse {
 }
 
 export class PlaywrightAfpadelProvider implements AfpadelProvider {
-  private readonly config: Required<Omit<PlaywrightAfpadelConfig, "dataDir">> & { dataDir: string };
+  private readonly config: Required<Omit<PlaywrightAfpadelConfig, "dataDir" | "chromiumExecutablePath">> & {
+    dataDir: string;
+    chromiumExecutablePath: string | undefined;
+  };
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
   private page: Page | null = null;
@@ -77,6 +82,7 @@ export class PlaywrightAfpadelProvider implements AfpadelProvider {
       headless: config.headless,
       timeoutMs: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       dataDir: config.dataDir ?? path.resolve(process.cwd(), "data/afpadel"),
+      chromiumExecutablePath: config.chromiumExecutablePath,
     };
   }
 
@@ -92,7 +98,12 @@ export class PlaywrightAfpadelProvider implements AfpadelProvider {
 
   private async getPage(): Promise<Page> {
     if (this.page && !this.page.isClosed()) return this.page;
-    this.browser = this.browser ?? (await chromium.launch({ headless: this.config.headless }));
+    this.browser =
+      this.browser ??
+      (await chromium.launch({
+        headless: this.config.headless,
+        executablePath: this.config.chromiumExecutablePath,
+      }));
     this.context = await this.browser.newContext();
     this.context.setDefaultTimeout(this.config.timeoutMs);
     this.page = await this.context.newPage();
