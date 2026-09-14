@@ -11,22 +11,31 @@ interface Column {
   label: string;
   value: (m: AdminAfpMember) => string;
   numeric?: boolean;
+  /** Filtre "de / à" (min/max) plutôt qu'un simple texte contenu — colonnes numériques ou date. */
+  range?: boolean;
 }
 
 const COLUMNS: Column[] = [
-  { key: "afpPlayerId", label: "N°", value: (m) => String(m.afpPlayerId), numeric: true },
+  { key: "afpPlayerId", label: "N°", value: (m) => String(m.afpPlayerId), numeric: true, range: true },
   { key: "fullName", label: "Nom", value: (m) => m.fullName },
   { key: "category", label: "Catégorie", value: (m) => m.category ?? "" },
   { key: "gender", label: "Sexe", value: (m) => m.gender ?? "" },
-  { key: "points", label: "Points", value: (m) => (m.points !== null ? String(m.points) : ""), numeric: true },
+  { key: "points", label: "Points", value: (m) => (m.points !== null ? String(m.points) : ""), numeric: true, range: true },
   { key: "clubName", label: "Club", value: (m) => m.clubName ?? "" },
   { key: "town", label: "Ville", value: (m) => m.town ?? "" },
   { key: "phone", label: "Téléphone", value: (m) => m.phone ?? "" },
   { key: "email", label: "Email", value: (m) => m.email ?? "" },
-  { key: "birthdate", label: "Naissance", value: (m) => (m.birthdate ? m.birthdate.slice(0, 10) : "") },
+  { key: "birthdate", label: "Naissance", value: (m) => (m.birthdate ? m.birthdate.slice(0, 10) : ""), range: true },
 ];
 
 type SortDir = "asc" | "desc";
+interface RangeFilter {
+  min: string;
+  max: string;
+}
+function isRangeFilter(v: string | RangeFilter | undefined): v is RangeFilter {
+  return typeof v === "object" && v !== null;
+}
 
 // Import de l'effectif du club depuis mon.afpadel.be (demande explicite
 // 2026-09-14) — tableau trié/filtré entièrement côté client : l'effectif
@@ -37,7 +46,7 @@ export default function AdminAfpMembersPage() {
   const [syncStatus, setSyncStatus] = useState<AdminAfpadelSyncStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [triggering, setTriggering] = useState(false);
-  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [filters, setFilters] = useState<Record<string, string | RangeFilter>>({});
   const [sort, setSort] = useState<{ key: string; dir: SortDir } | null>(null);
 
   const load = useCallback(() => {
@@ -86,7 +95,29 @@ export default function AdminAfpMembersPage() {
     if (!members) return [];
     let rows = members;
     for (const col of COLUMNS) {
-      const needle = filters[col.key]?.trim().toLowerCase();
+      const filter = filters[col.key];
+      if (!filter) continue;
+      if (isRangeFilter(filter)) {
+        const min = filter.min.trim();
+        const max = filter.max.trim();
+        if (!min && !max) continue;
+        rows = rows.filter((m) => {
+          const raw = col.value(m);
+          if (!raw) return false;
+          // Comparaison numérique pour N°/Points, lexicale (AAAA-MM-JJ, donc équivalente) pour la date.
+          if (col.numeric) {
+            const current = Number(raw);
+            if (min && current < Number(min)) return false;
+            if (max && current > Number(max)) return false;
+          } else {
+            if (min && raw < min) return false;
+            if (max && raw > max) return false;
+          }
+          return true;
+        });
+        continue;
+      }
+      const needle = filter.trim().toLowerCase();
       if (!needle) continue;
       rows = rows.filter((m) => col.value(m).toLowerCase().includes(needle));
     }
@@ -164,12 +195,33 @@ export default function AdminAfpMembersPage() {
                       <span className="text-xs text-accent-400">{active ? (sort!.dir === "asc" ? "▲" : "▼") : ""}</span>
                     </button>
                     <div className="px-2 pb-2">
-                      <input
-                        value={filters[col.key] ?? ""}
-                        onChange={(e) => setFilters((f) => ({ ...f, [col.key]: e.target.value }))}
-                        placeholder="Filtrer…"
-                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 placeholder:text-slate-600"
-                      />
+                      {col.range ? (
+                        <div className="flex gap-1">
+                          <input
+                            value={(filters[col.key] as RangeFilter | undefined)?.min ?? ""}
+                            onChange={(e) =>
+                              setFilters((f) => ({ ...f, [col.key]: { min: e.target.value, max: (f[col.key] as RangeFilter | undefined)?.max ?? "" } }))
+                            }
+                            placeholder="De…"
+                            className="w-1/2 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 placeholder:text-slate-600"
+                          />
+                          <input
+                            value={(filters[col.key] as RangeFilter | undefined)?.max ?? ""}
+                            onChange={(e) =>
+                              setFilters((f) => ({ ...f, [col.key]: { min: (f[col.key] as RangeFilter | undefined)?.min ?? "", max: e.target.value } }))
+                            }
+                            placeholder="À…"
+                            className="w-1/2 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 placeholder:text-slate-600"
+                          />
+                        </div>
+                      ) : (
+                        <input
+                          value={(filters[col.key] as string | undefined) ?? ""}
+                          onChange={(e) => setFilters((f) => ({ ...f, [col.key]: e.target.value }))}
+                          placeholder="Filtrer…"
+                          className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 placeholder:text-slate-600"
+                        />
+                      )}
                     </div>
                   </th>
                 );
