@@ -8,6 +8,7 @@ import { NextoreAccountsRepository } from "./accounts.repository.js";
 import { NextoreAccountsService } from "./accounts.service.js";
 import { NextorePaymentsRepository } from "./payments.repository.js";
 import { NextorePaymentsService } from "./payments.service.js";
+import { NextoreCashSessionRepository } from "./cash-session.repository.js";
 import { NextoreSplitService } from "./split.service.js";
 import { WalletRepository } from "../wallet/wallet.repository.js";
 import { WalletService } from "../wallet/wallet.service.js";
@@ -35,7 +36,7 @@ describe("NextoreSplitService (CDC Nextore §13 — split égal/libre, SPL-*)", 
     const paymentsRepo = new NextorePaymentsRepository(prisma);
     accountsService = new NextoreAccountsService(accountsRepo, new NextoreCatalogRepository(prisma), paymentsRepo, auditLog);
     const walletService = new WalletService(new WalletRepository(prisma));
-    paymentsService = new NextorePaymentsService(paymentsRepo, accountsRepo, accountsService, walletService, auditLog);
+    paymentsService = new NextorePaymentsService(paymentsRepo, accountsRepo, accountsService, walletService, auditLog, new NextoreCashSessionRepository(prisma));
     splitService = new NextoreSplitService(accountsRepo, accountsService, paymentsRepo);
 
     const operator = await prisma.user.create({

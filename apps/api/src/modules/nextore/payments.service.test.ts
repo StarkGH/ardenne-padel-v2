@@ -8,6 +8,7 @@ import { NextoreAccountsRepository } from "./accounts.repository.js";
 import { NextoreAccountsService } from "./accounts.service.js";
 import { NextorePaymentsRepository } from "./payments.repository.js";
 import { NextorePaymentsService } from "./payments.service.js";
+import { NextoreCashSessionRepository } from "./cash-session.repository.js";
 import { WalletRepository } from "../wallet/wallet.repository.js";
 import { WalletService, InsufficientWalletBalanceError } from "../wallet/wallet.service.js";
 import { AuditLogService } from "../admin/audit-log.service.js";
@@ -34,7 +35,7 @@ describe("NextorePaymentsService (CDC Nextore §12/§26 — paiements, idempoten
     const paymentsRepo = new NextorePaymentsRepository(prisma);
     accountsService = new NextoreAccountsService(accountsRepo, new NextoreCatalogRepository(prisma), paymentsRepo, auditLog);
     walletService = new WalletService(new WalletRepository(prisma));
-    paymentsService = new NextorePaymentsService(paymentsRepo, accountsRepo, accountsService, walletService, auditLog);
+    paymentsService = new NextorePaymentsService(paymentsRepo, accountsRepo, accountsService, walletService, auditLog, new NextoreCashSessionRepository(prisma));
 
     const operator = await prisma.user.create({
       data: { email: `staff-${randomUUID()}@example.com`, passwordHash: "x", firstName: "S", lastName: "T", role: "STAFF", status: "ACTIVE" },

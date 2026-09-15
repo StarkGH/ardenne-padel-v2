@@ -2,6 +2,7 @@ import { AppError, ErrorCodes, assertCents } from "@ardenne/shared";
 import type { NextorePaymentsRepository } from "./payments.repository.js";
 import type { NextoreAccountsRepository } from "./accounts.repository.js";
 import type { NextoreAccountsService } from "./accounts.service.js";
+import type { NextoreCashSessionRepository } from "./cash-session.repository.js";
 import type { WalletService } from "../wallet/wallet.service.js";
 import type { AuditLogService } from "../admin/audit-log.service.js";
 
@@ -33,6 +34,7 @@ export class NextorePaymentsService {
     private readonly accountsService: NextoreAccountsService,
     private readonly walletService: WalletService,
     private readonly auditLog: AuditLogService,
+    private readonly cashSessionRepo: NextoreCashSessionRepository,
   ) {}
 
   async recordPayment(input: RecordPaymentInput) {
@@ -53,6 +55,12 @@ export class NextorePaymentsService {
     const dueBeforeCents = await this.accountsService.getDueTotalCents(input.accountId);
     const changeCents = Math.max(0, input.amountCents - dueBeforeCents);
 
+    // Lot Nextore G — rattache le paiement à la session de caisse ouverte,
+    // si une l'est (best-effort : ne bloque jamais une vente si aucune
+    // session n'est ouverte, cf. schema.prisma sur `cashSessionId`).
+    const openSession = await this.cashSessionRepo.findOpenSession();
+    const cashSessionId = openSession?.id;
+
     if (input.method !== "WALLET_CREDIT") {
       // CASH/CARD : une seule écriture, déjà atomique (gardée par idempotencyKey unique).
       let payment;
@@ -66,6 +74,7 @@ export class NextorePaymentsService {
           externalReference: input.externalReference,
           idempotencyKey: input.idempotencyKey,
           recordedByUserId: input.recordedByUserId,
+          cashSessionId,
         });
       } catch (err) {
         // Deux requêtes concurrentes avec la même clé (double clic réel,
@@ -106,6 +115,7 @@ export class NextorePaymentsService {
         status: "PENDING",
         idempotencyKey: input.idempotencyKey,
         recordedByUserId: input.recordedByUserId,
+        cashSessionId,
       });
     } catch (err) {
       if (!isUniqueConstraintError(err)) throw err;

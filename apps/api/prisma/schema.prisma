@@ -1617,6 +1617,12 @@ model NextorePayment {
   status              NextorePaymentStatus @default(RECORDED)
   externalReference   String?              @map("external_reference")
   walletTransactionId String?              @map("wallet_transaction_id")
+  /// Lot Nextore G — session de caisse ouverte au moment du paiement
+  /// (résolue automatiquement, jamais choisie par l'opérateur). Nullable :
+  /// un paiement enregistré hors session (ne devrait pas arriver en usage
+  /// normal une fois G en place) reste possible plutôt que de bloquer une
+  /// vente, mais n'apparaît alors dans aucun rapport de caisse (CASH-010).
+  cashSessionId       String?              @map("cash_session_id")
   idempotencyKey      String               @unique @map("idempotency_key")
   recordedByUserId    String               @map("recorded_by_user_id")
   reversalOfPaymentId String?              @map("reversal_of_payment_id")
@@ -1627,5 +1633,64 @@ model NextorePayment {
 
   @@index([accountId])
   @@index([status])
+  @@index([cashSessionId])
   @@map("nextore_payments")
 }
+
+// =====================================================================
+// Lot Nextore G — Sessions de caisse (CASH-*)
+// =====================================================================
+
+enum NextoreCashSessionStatus {
+  OPEN
+  CLOSED
+}
+
+/// CDC Nextore §15 — une session à la fois (une seule caisse physique dans
+/// ce club, cf. audit Phase 0 : un seul terminal Loyaltek). `declaredOpeningCents`
+/// est un comptage aveugle (CASH-003 : le théorique précédent n'est
+/// volontairement pas pré-rempli côté service, à l'interface de le proposer
+/// ou non). Le théorique de clôture se calcule à la demande (mouvements +
+/// paiements cash de la session), jamais stocké tant que la session est
+/// ouverte — seul `closingTheoreticalCents` fige le calcul au moment de la
+/// clôture (CASH-007).
+model NextoreCashSession {
+  id                      String                   @id @default(uuid())
+  status                  NextoreCashSessionStatus @default(OPEN)
+  openedByUserId          String                   @map("opened_by_user_id")
+  openedAt                DateTime                 @default(now()) @map("opened_at")
+  declaredOpeningCents    Int                      @map("declared_opening_cents")
+  closedByUserId          String?                  @map("closed_by_user_id")
+  closedAt                DateTime?                @map("closed_at")
+  declaredClosingCents    Int?                     @map("declared_closing_cents")
+  theoreticalClosingCents Int?                     @map("theoretical_closing_cents")
+  varianceCents           Int?                     @map("variance_cents")
+  varianceJustification   String?                  @map("variance_justification")
+
+  movements NextoreCashMovement[]
+
+  @@index([status])
+  @@map("nextore_cash_sessions")
+}
+
+enum NextoreCashMovementType {
+  IN
+  OUT
+}
+
+/// CDC Nextore §15 (CASH-005) — mouvement hors vente (apport, retrait,
+/// dépôt banque...). Jamais de suppression, motif obligatoire (AUD-005).
+model NextoreCashMovement {
+  id              String                  @id @default(uuid())
+  sessionId       String                  @map("session_id")
+  session         NextoreCashSession      @relation(fields: [sessionId], references: [id])
+  type            NextoreCashMovementType
+  amountCents     Int                     @map("amount_cents")
+  reason          String
+  createdByUserId String                  @map("created_by_user_id")
+  createdAt       DateTime                @default(now()) @map("created_at")
+
+  @@index([sessionId])
+  @@map("nextore_cash_movements")
+}
+

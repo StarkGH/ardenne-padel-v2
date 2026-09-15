@@ -118,6 +118,9 @@ import { NextorePaymentsService } from "./modules/nextore/payments.service.js";
 import { createNextorePaymentsRouter } from "./modules/nextore/payments.routes.js";
 import { NextoreSplitService } from "./modules/nextore/split.service.js";
 import { createNextoreSplitRouter } from "./modules/nextore/split.routes.js";
+import { NextoreCashSessionRepository } from "./modules/nextore/cash-session.repository.js";
+import { NextoreCashSessionService } from "./modules/nextore/cash-session.service.js";
+import { createNextoreCashSessionRouter } from "./modules/nextore/cash-session.routes.js";
 import { ReportsService } from "./modules/admin/reports.service.js";
 import { createReportsRouter } from "./modules/admin/reports.routes.js";
 import { LegacyMigrationAdminService } from "./modules/admin/legacy-migration-admin.service.js";
@@ -339,12 +342,17 @@ export function createApp({
   );
   app.use("/api/v1", createNextoreAccountsRouter(nextoreAccountsService, new CrmRepository(prisma)));
 
+  const nextoreCashSessionRepository = new NextoreCashSessionRepository(prisma);
+  const nextoreCashSessionService = new NextoreCashSessionService(nextoreCashSessionRepository, auditLogService);
+  app.use("/api/v1", createNextoreCashSessionRouter(nextoreCashSessionService));
+
   const nextorePaymentsService = new NextorePaymentsService(
     nextorePaymentsRepository,
     nextoreAccountsRepository,
     nextoreAccountsService,
     walletService,
     auditLogService,
+    nextoreCashSessionRepository,
   );
   app.use("/api/v1", createNextorePaymentsRouter(nextorePaymentsService));
 

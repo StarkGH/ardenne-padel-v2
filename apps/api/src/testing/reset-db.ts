@@ -10,6 +10,8 @@ import type { PrismaClient } from "@prisma/client";
  */
 export async function resetIntegrationTestData(prisma: PrismaClient): Promise<void> {
   await prisma.auditLog.deleteMany();
+  await prisma.nextoreCashMovement.deleteMany(); // référence session -> avant session
+  await prisma.nextoreCashSession.deleteMany();
   await prisma.nextorePayment.deleteMany(); // référence account -> avant account
   await prisma.nextoreSaleLine.deleteMany(); // référence account/article/participant -> avant eux
   await prisma.nextoreParticipant.deleteMany(); // référence account/user -> avant eux
