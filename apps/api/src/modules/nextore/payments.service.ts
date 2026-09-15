@@ -47,6 +47,11 @@ export class NextorePaymentsService {
     if (account.status !== "OPEN" && account.status !== "PARTIALLY_PAID") {
       throw new AppError(ErrorCodes.VALIDATION_FAILED, "Ce compte n'est plus ouvert.", 422);
     }
+    // SPL-006 — trop-perçu : jamais absorbé silencieusement, juste surfacé
+    // (`changeCents`) pour que l'opérateur décide (monnaie/pourboire/crédit,
+    // hors scope automatisé de ce lot).
+    const dueBeforeCents = await this.accountsService.getDueTotalCents(input.accountId);
+    const changeCents = Math.max(0, input.amountCents - dueBeforeCents);
 
     if (input.method !== "WALLET_CREDIT") {
       // CASH/CARD : une seule écriture, déjà atomique (gardée par idempotencyKey unique).
@@ -72,7 +77,7 @@ export class NextorePaymentsService {
         return raced;
       }
       await this.afterPaymentRecorded(payment.id, input.accountId, input.recordedByUserId, input.method, input.amountCents);
-      return payment;
+      return { ...payment, changeCents };
     }
 
     // WALLET_CREDIT — résout le porte-monnaie du participant, sinon celui du client rattaché au compte (PAY-003).
@@ -122,7 +127,7 @@ export class NextorePaymentsService {
 
     const recorded = await this.repo.markRecorded(pending.id);
     await this.afterPaymentRecorded(recorded.id, input.accountId, input.recordedByUserId, "WALLET_CREDIT", input.amountCents);
-    return recorded;
+    return { ...recorded, changeCents };
   }
 
   private async afterPaymentRecorded(paymentId: string, accountId: string, actorUserId: string, method: string, amountCents: number) {

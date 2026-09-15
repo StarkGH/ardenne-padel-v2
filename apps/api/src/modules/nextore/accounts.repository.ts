@@ -43,6 +43,10 @@ export class NextoreAccountsRepository {
     return this.db.nextoreParticipant.findUnique({ where: { id } });
   }
 
+  listParticipants(accountId: string) {
+    return this.db.nextoreParticipant.findMany({ where: { accountId }, orderBy: { joinedAt: "asc" } });
+  }
+
   setParticipantLeft(id: string, leftAt: Date) {
     return this.db.nextoreParticipant.update({ where: { id }, data: { leftAt } });
   }

@@ -116,6 +116,8 @@ import { createNextoreAccountsRouter } from "./modules/nextore/accounts.routes.j
 import { NextorePaymentsRepository } from "./modules/nextore/payments.repository.js";
 import { NextorePaymentsService } from "./modules/nextore/payments.service.js";
 import { createNextorePaymentsRouter } from "./modules/nextore/payments.routes.js";
+import { NextoreSplitService } from "./modules/nextore/split.service.js";
+import { createNextoreSplitRouter } from "./modules/nextore/split.routes.js";
 import { ReportsService } from "./modules/admin/reports.service.js";
 import { createReportsRouter } from "./modules/admin/reports.routes.js";
 import { LegacyMigrationAdminService } from "./modules/admin/legacy-migration-admin.service.js";
@@ -345,6 +347,9 @@ export function createApp({
     auditLogService,
   );
   app.use("/api/v1", createNextorePaymentsRouter(nextorePaymentsService));
+
+  const nextoreSplitService = new NextoreSplitService(nextoreAccountsRepository, nextoreAccountsService, nextorePaymentsRepository);
+  app.use("/api/v1", createNextoreSplitRouter(nextoreSplitService));
 
   // --- AFPadel (fédération) — import de l'effectif du club ---
   const afpadelProvider = isAfpadelConfigured(config)
