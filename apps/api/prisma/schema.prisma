@@ -1694,3 +1694,55 @@ model NextoreCashMovement {
   @@map("nextore_cash_movements")
 }
 
+// =====================================================================
+// Lot Nextore I — Rapprochement Europabank (REC0-*)
+// =====================================================================
+
+/// CDC Nextore §23 — un import = un export du terminal Loyaltek/Europabank
+/// (CSV/Excel). `sourceFilename` sert de repère humain, pas de clé
+/// d'idempotence (un même fichier peut légitimement être réimporté après
+/// correction manuelle — la déduplication se fait au niveau des entrées via
+/// le rapprochement lui-même, pas au niveau du batch).
+model NextoreReconciliationImport {
+  id               String   @id @default(uuid())
+  importedByUserId String   @map("imported_by_user_id")
+  importedAt       DateTime @default(now()) @map("imported_at")
+  sourceFilename   String?  @map("source_filename")
+  totalRows        Int      @map("total_rows")
+
+  entries NextoreReconciliationEntry[]
+
+  @@map("nextore_reconciliation_imports")
+}
+
+enum NextoreReconciliationStatus {
+  UNMATCHED
+  MATCHED
+  AMBIGUOUS
+}
+
+/// CDC Nextore §23 (REC0-002/003) — une ligne de relevé Europabank. Le
+/// rapprochement se fait sur montant EXACT (REC0-007 : "aucune tolérance de
+/// montant ne doit être appliquée silencieusement") + fenêtre temporelle
+/// explicite (pas une tolérance de montant, un délai de règlement normal
+/// entre vente et remontée bancaire). `matchedPaymentId` référence
+/// `NextorePayment.id` en chaîne libre (même statut que `bookingId` sur
+/// `WalletTransaction` : deux domaines distincts, pas de FK cross-souci).
+model NextoreReconciliationEntry {
+  id                  String                      @id @default(uuid())
+  importId            String                      @map("import_id")
+  import              NextoreReconciliationImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  externalDate        DateTime                    @map("external_date")
+  externalAmountCents Int                         @map("external_amount_cents")
+  externalReference   String?                     @map("external_reference")
+  status              NextoreReconciliationStatus @default(UNMATCHED)
+  matchedPaymentId    String?                     @map("matched_payment_id")
+  matchedByUserId     String?                     @map("matched_by_user_id")
+  matchedAt           DateTime?                   @map("matched_at")
+  note                String?
+
+  @@index([importId])
+  @@index([status])
+  @@index([matchedPaymentId])
+  @@map("nextore_reconciliation_entries")
+}
