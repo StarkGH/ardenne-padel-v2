@@ -123,6 +123,7 @@ describe("Bookings — parcours HTTP complet (sans Legacy)", () => {
         sendSplitInvitationEmail: async () => {},
         sendMigrationInvitation: async () => {},
         sendTemplatedEmail: async () => {},
+        sendAcademyInvitation: async () => {},
       },
     });
     await request(capturingApp).post("/api/v1/auth/register").send(credentials);

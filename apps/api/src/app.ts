@@ -118,18 +118,22 @@ import { NextorePaymentsService } from "./modules/nextore/payments.service.js";
 import { createNextorePaymentsRouter } from "./modules/nextore/payments.routes.js";
 import { NextoreSplitService } from "./modules/nextore/split.service.js";
 import { createNextoreSplitRouter } from "./modules/nextore/split.routes.js";
-import { NextoreReconciliationRepository } from "./modules/nextore/reconciliation.repository.js";
-import { NextoreReconciliationService } from "./modules/nextore/reconciliation.service.js";
-import { createNextoreReconciliationRouter } from "./modules/nextore/reconciliation.routes.js";
 import { NextoreCashSessionRepository } from "./modules/nextore/cash-session.repository.js";
 import { NextoreCashSessionService } from "./modules/nextore/cash-session.service.js";
 import { createNextoreCashSessionRouter } from "./modules/nextore/cash-session.routes.js";
+import { NextoreReconciliationRepository } from "./modules/nextore/reconciliation.repository.js";
+import { NextoreReconciliationService } from "./modules/nextore/reconciliation.service.js";
+import { createNextoreReconciliationRouter } from "./modules/nextore/reconciliation.routes.js";
 import { ReportsService } from "./modules/admin/reports.service.js";
 import { createReportsRouter } from "./modules/admin/reports.routes.js";
 import { LegacyMigrationAdminService } from "./modules/admin/legacy-migration-admin.service.js";
 import { createLegacyMigrationAdminRouter } from "./modules/admin/legacy-migration-admin.routes.js";
 import { MigrationInvitationService } from "./modules/legacy-doinsport/migration-invitation.service.js";
 import { createMigrationInvitationRouter } from "./modules/legacy-doinsport/migration-invitation.routes.js";
+import { AcademyRepository } from "./modules/academy/academy.repository.js";
+import { AcademyService } from "./modules/academy/academy.service.js";
+import { AcademyInvitationService } from "./modules/academy/academy-invitation.service.js";
+import { createAcademyRouter } from "./modules/academy/academy.routes.js";
 
 export interface AppDependencies {
   prisma: PrismaClient;
@@ -290,6 +294,12 @@ export function createApp({
   app.use("/api/v1", createProfileRouter(identityService));
   app.use("/api/v1", createCourtsRouter(courtsRepository));
   app.use("/api/v1", createAvailabilityRouter(availabilityService, courtsRepository));
+
+  // --- Academy — Phase A (MVP disponibilités) ---
+  const academyRepository = new AcademyRepository(prisma);
+  const academyInvitationService = new AcademyInvitationService(academyRepository, emailer, config);
+  const academyService = new AcademyService(academyRepository, availabilityService, courtsRepository, notificationService);
+  app.use("/api/v1", createAcademyRouter(academyService, academyInvitationService));
   app.use("/api/v1", createPricingRouter(pricingService, courtsRepository));
   app.use("/api/v1", createBookingsRouter(bookingsService));
   app.use("/api/v1", createBookingSharesRouter(shareService));

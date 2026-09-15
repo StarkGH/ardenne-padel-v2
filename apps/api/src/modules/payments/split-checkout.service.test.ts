@@ -34,6 +34,7 @@ class CapturingEmailSender implements EmailSender {
     this.shareUrls.push(url);
   }
   async sendMigrationInvitation(): Promise<void> {}
+  async sendAcademyInvitation(): Promise<void> {}
   async sendTemplatedEmail(): Promise<void> {}
 }
 

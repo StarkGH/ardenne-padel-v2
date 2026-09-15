@@ -1,4 +1,4 @@
-export type Role = "CUSTOMER" | "STAFF" | "ADMIN" | "SUPER_ADMIN";
+export type Role = "CUSTOMER" | "COACH" | "STAFF" | "ADMIN" | "SUPER_ADMIN";
 export type UserStatus = "PENDING_VERIFICATION" | "ACTIVE" | "DISABLED";
 
 export interface AuthUser {

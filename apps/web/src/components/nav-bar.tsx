@@ -57,6 +57,11 @@ export function NavBar() {
                 <Link href="/profile" className="rounded-lg px-3 py-2.5 text-slate-200 hover:bg-white/5 hover:text-accent-600">
                   Profil
                 </Link>
+                {user.role === "COACH" && (
+                  <Link href="/academy/coach/availability" className="rounded-lg px-3 py-2.5 text-slate-200 hover:bg-white/5 hover:text-accent-600">
+                    Academy — Mes disponibilités
+                  </Link>
+                )}
                 {ADMIN_ROLES.includes(user.role) && (
                   <Link
                     href="/admin/dashboard"

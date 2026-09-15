@@ -39,6 +39,7 @@ class ThrowingEmailSender implements EmailSender {
   async sendEmailChangeConfirmation(): Promise<void> {}
   async sendSplitInvitationEmail(): Promise<void> {}
   async sendMigrationInvitation(): Promise<void> {}
+  async sendAcademyInvitation(): Promise<void> {}
   async sendTemplatedEmail(): Promise<void> {
     throw new Error("fournisseur e-mail indisponible (simulation)");
   }

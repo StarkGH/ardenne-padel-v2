@@ -22,6 +22,12 @@ export interface EmailSender {
    * responsable de la cohérence des payloads par template.
    */
   sendTemplatedEmail(to: string, template: string, payload: Record<string, unknown>): Promise<void>;
+  /**
+   * Academy §8 — lien d'accès temporaire élève. Envoyé directement, jamais
+   * via `notification_outbox` (même raison que `sendMigrationInvitation` :
+   * le token brut ne doit pas dormir en base en clair dans un payload).
+   */
+  sendAcademyInvitation(to: string, inviteUrl: string): Promise<void>;
 }
 
 export class DevConsoleEmailSender implements EmailSender {
@@ -53,5 +59,10 @@ export class DevConsoleEmailSender implements EmailSender {
   async sendMigrationInvitation(to: string, inviteUrl: string): Promise<void> {
     // eslint-disable-next-line no-console
     console.log(`[dev-email] Invitation à migrer votre compte pour ${to} : ${inviteUrl}`);
+  }
+
+  async sendAcademyInvitation(to: string, inviteUrl: string): Promise<void> {
+    // eslint-disable-next-line no-console
+    console.log(`[dev-email] Invitation Academy pour ${to} : ${inviteUrl}`);
   }
 }

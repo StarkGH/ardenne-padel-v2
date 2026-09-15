@@ -53,5 +53,11 @@ export async function resetIntegrationTestData(prisma: PrismaClient): Promise<vo
   await prisma.emailChangeToken.deleteMany();
   await prisma.session.deleteMany();
   await prisma.legacyClient.deleteMany();
+  await prisma.academyLessonParticipant.deleteMany(); // référence lesson/student -> avant eux
+  await prisma.academyLesson.deleteMany(); // référence teacher (user, RESTRICT) -> avant user
+  await prisma.academyCourseRequest.deleteMany(); // référence student -> avant student
+  await prisma.academyAvailability.deleteMany(); // référence teacher/student -> avant eux
+  await prisma.academyInvitation.deleteMany(); // référence student -> avant student
+  await prisma.academyStudent.deleteMany(); // référence user (nullable) -> avant user
   await prisma.user.deleteMany();
 }

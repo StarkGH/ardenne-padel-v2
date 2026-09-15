@@ -65,6 +65,10 @@ const NAV_GROUPS: Array<{ label: string; links: Array<{ href: string; label: str
     ],
   },
   {
+    label: "Academy",
+    links: [{ href: "/admin/academy/invitations", label: "Invitations élève" }],
+  },
+  {
     label: "Réglages",
     links: [{ href: "/admin/settings", label: "Paramètres" }],
   },

@@ -19,6 +19,11 @@ declare global {
         id: string;
         name: string;
       };
+      /** Élève Academy authentifié via son lien à token temporaire (§8) — jamais via une session V2 classique. */
+      academyStudent?: {
+        id: string;
+        email: string;
+      };
     }
   }
 }

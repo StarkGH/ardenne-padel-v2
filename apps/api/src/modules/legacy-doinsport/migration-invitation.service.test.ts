@@ -19,6 +19,7 @@ class CapturingEmailSender implements EmailSender {
   async sendMigrationInvitation(_to: string, url: string): Promise<void> {
     this.inviteUrls.push(url);
   }
+  async sendAcademyInvitation(): Promise<void> {}
 }
 
 function tokenFromUrl(url: string): string {
