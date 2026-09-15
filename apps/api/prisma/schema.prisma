@@ -48,6 +48,8 @@ model User {
   creditPackPurchases     CreditPackPurchase[]
   clientNotes             ClientNote[]
   legacyClientLink        LegacyClient?
+  nextoreAccounts         NextoreAccount[]
+  nextoreParticipations   NextoreParticipant[]
 
   @@map("users")
 }
@@ -1401,30 +1403,168 @@ model ClientNote {
 /// réel — même précaution que `LegacyBooking.accessCodes` : on ne perd
 /// jamais un champ qu'on n'a pas encore modélisé explicitement.
 model AfpMember {
-  id            String    @id @default(uuid())
-  afpPlayerId   Int       @unique @map("afp_player_id")
-  licenseNumber String?   @map("license_number")
-  fullName      String    @map("full_name")
-  gender        String?
-  category      String?
-  points        Int?
+  id             String    @id @default(uuid())
+  afpPlayerId    Int       @unique @map("afp_player_id")
+  licenseNumber  String?   @map("license_number")
+  fullName       String    @map("full_name")
+  gender         String?
+  category       String?
+  points         Int?
   // Champs de contact/identité (demande explicite 2026-09-14) — extraits de
   // rawPlayerData au moment de la synchro de la fiche détaillée, jamais
   // renseignés avant (colonnes nulles tant que detailSyncedAt est nul).
-  email       String?
-  phone       String?
-  birthdate   DateTime?
-  town        String?
-  address     String?
-  zip         String?
-  clubName    String?   @map("club_name")
-  nationality String?
-  ageCategory String?   @map("age_category")
-  rawListData   Json?     @map("raw_list_data")
-  rawPlayerData Json?     @map("raw_player_data")
+  email          String?
+  phone          String?
+  birthdate      DateTime?
+  town           String?
+  address        String?
+  zip            String?
+  clubName       String?   @map("club_name")
+  nationality    String?
+  ageCategory    String?   @map("age_category")
+  rawListData    Json?     @map("raw_list_data")
+  rawPlayerData  Json?     @map("raw_player_data")
   detailSyncedAt DateTime? @map("detail_synced_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
 
   @@map("afp_members")
+}
+
+// =====================================================================
+// Lot Nextore B/C/D — Catalogue bar + moteur transactionnel (comptes,
+// participants, lignes de vente). Pas de paiement/caisse physique ici
+// (Lots E/F/G) — voir plan d'exécution Nextore V2.
+// =====================================================================
+
+/// CDC Nextore §8 (CAT-002) — catégories/sous-catégories via `parentId`
+/// auto-référencé (pas de second modèle "sous-catégorie" redondant).
+model NextorePOSCategory {
+  id           String               @id @default(uuid())
+  label        String
+  parentId     String?              @map("parent_id")
+  parent       NextorePOSCategory?  @relation("CategoryParent", fields: [parentId], references: [id])
+  children     NextorePOSCategory[] @relation("CategoryParent")
+  displayOrder Int                  @default(0) @map("display_order")
+  active       Boolean              @default(true)
+  createdAt    DateTime             @default(now()) @map("created_at")
+  updatedAt    DateTime             @updatedAt @map("updated_at")
+
+  articles NextoreArticle[]
+
+  @@map("nextore_pos_categories")
+}
+
+/// CDC Nextore §8 — article vendable. `vatRatePercent` en champ libre (pas
+/// de référentiel TVA partagé dans ardenne-padel-v2 à ce jour — confirmé en
+/// lisant `docs/tva.md` : la plateforme ne gère qu'un taux unique 6% pour
+/// les réservations, le bar a ses propres taux 6/12/21% sans référentiel
+/// commun existant). `internalProductId` référence `pnl.nextore_products`
+/// par simple chaîne (bases distinctes, pas de FK cross-DB) — Lot H la
+/// consommera via l'API PNL à créer.
+model NextoreArticle {
+  id                 String             @id @default(uuid())
+  code               String             @unique
+  label              String
+  shortLabel         String?            @map("short_label")
+  categoryId         String             @map("category_id")
+  category           NextorePOSCategory @relation(fields: [categoryId], references: [id])
+  priceCents         Int                @map("price_cents")
+  vatRatePercent     Decimal            @map("vat_rate_percent") @db.Decimal(5, 2)
+  photoUrl           String?            @map("photo_url")
+  active             Boolean            @default(true)
+  displayOrder       Int                @default(0) @map("display_order")
+  internalProductRef String?            @map("internal_product_ref")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  saleLines NextoreSaleLine[]
+
+  @@index([categoryId])
+  @@map("nextore_articles")
+}
+
+enum NextoreAccountStatus {
+  OPEN
+  PARTIALLY_PAID
+  CLOSED
+  VOID
+  ANOMALY
+}
+
+/// CDC Nextore §7.3/§10 — compte/addition ouverte. `customerId` référence
+/// `User.id` (jamais de second référentiel client, CDC Nextore §0.1) ;
+/// `version` porte le verrouillage optimiste (CDC Nextore §30.3 — deux
+/// opérateurs sur le même compte, jamais d'écrasement silencieux).
+model NextoreAccount {
+  id             String               @id @default(uuid())
+  status         NextoreAccountStatus @default(OPEN)
+  label          String?
+  customerId     String?              @map("customer_id")
+  customer       User?                @relation(fields: [customerId], references: [id])
+  openedByUserId String               @map("opened_by_user_id")
+  openedAt       DateTime             @default(now()) @map("opened_at")
+  closedAt       DateTime?            @map("closed_at")
+  version        Int                  @default(0)
+
+  participants NextoreParticipant[]
+  saleLines    NextoreSaleLine[]
+
+  @@index([status])
+  @@index([customerId])
+  @@map("nextore_accounts")
+}
+
+/// CDC Nextore §7.5/§11 — participant d'un compte, identifié (`customerId`)
+/// ou local (`displayName`). `leftAt` fige la situation au départ (GRP-003) :
+/// une ligne créée après `leftAt` ne peut plus lui être affectée (contrôle
+/// service, pas contrainte DB — la validité dépend de l'horodatage de la
+/// ligne, pas seulement de l'état courant).
+model NextoreParticipant {
+  id          String         @id @default(uuid())
+  accountId   String         @map("account_id")
+  account     NextoreAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  customerId  String?        @map("customer_id")
+  customer    User?          @relation(fields: [customerId], references: [id])
+  displayName String?        @map("display_name")
+  joinedAt    DateTime       @default(now()) @map("joined_at")
+  leftAt      DateTime?      @map("left_at")
+
+  saleLines NextoreSaleLine[]
+
+  @@index([accountId])
+  @@map("nextore_participants")
+}
+
+enum NextoreSaleLineStatus {
+  ACTIVE
+  VOIDED
+}
+
+/// CDC Nextore §7.4 (COR-001) — jamais de suppression physique : une ligne
+/// annulée passe `VOIDED` avec motif, elle reste visible dans le compte et
+/// le registre. `unitPriceCentsAtSale`/`vatRateAtSaleP ercent` sont un
+/// snapshot immuable (CAT-004) — ne jamais relire `NextoreArticle` pour
+/// recalculer une vente passée.
+model NextoreSaleLine {
+  id                   String                @id @default(uuid())
+  accountId            String                @map("account_id")
+  account              NextoreAccount        @relation(fields: [accountId], references: [id])
+  articleId            String                @map("article_id")
+  article              NextoreArticle        @relation(fields: [articleId], references: [id])
+  participantId        String?               @map("participant_id")
+  participant          NextoreParticipant?   @relation(fields: [participantId], references: [id])
+  quantity             Decimal               @db.Decimal(10, 3)
+  unitPriceCentsAtSale Int                   @map("unit_price_cents_at_sale")
+  vatRateAtSalePercent Decimal               @map("vat_rate_at_sale_percent") @db.Decimal(5, 2)
+  operatorUserId       String                @map("operator_user_id")
+  status               NextoreSaleLineStatus @default(ACTIVE)
+  voidReason           String?               @map("void_reason")
+  voidedByUserId       String?               @map("voided_by_user_id")
+  voidedAt             DateTime?             @map("voided_at")
+  createdAt            DateTime              @default(now()) @map("created_at")
+
+  @@index([accountId])
+  @@index([participantId])
+  @@map("nextore_sale_lines")
 }

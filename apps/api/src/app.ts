@@ -107,6 +107,12 @@ import { createWalletAdminRouter } from "./modules/admin/wallet-admin.routes.js"
 import { createTerminalAdminRouter } from "./modules/admin/terminal-admin.routes.js";
 import { createAuditLogRouter } from "./modules/admin/audit-log.routes.js";
 import { createSettingsRouter } from "./modules/admin/settings.routes.js";
+import { NextoreCatalogRepository } from "./modules/nextore/catalog.repository.js";
+import { NextoreCatalogService } from "./modules/nextore/catalog.service.js";
+import { createNextoreCatalogRouter } from "./modules/nextore/catalog.routes.js";
+import { NextoreAccountsRepository } from "./modules/nextore/accounts.repository.js";
+import { NextoreAccountsService } from "./modules/nextore/accounts.service.js";
+import { createNextoreAccountsRouter } from "./modules/nextore/accounts.routes.js";
 import { ReportsService } from "./modules/admin/reports.service.js";
 import { createReportsRouter } from "./modules/admin/reports.routes.js";
 import { LegacyMigrationAdminService } from "./modules/admin/legacy-migration-admin.service.js";
@@ -312,6 +318,15 @@ export function createApp({
     config,
   );
   app.use("/api/v1", createAutomationRouter(automationService, config, auditLogService));
+
+  // --- Lot Nextore B/C/D — Catalogue bar + comptes/participants/lignes ---
+  const nextoreCatalogRepository = new NextoreCatalogRepository(prisma);
+  const nextoreCatalogService = new NextoreCatalogService(nextoreCatalogRepository);
+  app.use("/api/v1", createNextoreCatalogRouter(nextoreCatalogService));
+
+  const nextoreAccountsRepository = new NextoreAccountsRepository(prisma);
+  const nextoreAccountsService = new NextoreAccountsService(nextoreAccountsRepository, nextoreCatalogRepository, auditLogService);
+  app.use("/api/v1", createNextoreAccountsRouter(nextoreAccountsService, new CrmRepository(prisma)));
 
   // --- AFPadel (fédération) — import de l'effectif du club ---
   const afpadelProvider = isAfpadelConfigured(config)
