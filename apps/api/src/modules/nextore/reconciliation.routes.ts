@@ -24,7 +24,8 @@ const importSchema = z.object({
         externalReference: z.string().optional(),
       }),
     )
-    .min(1),
+    .min(1)
+    .max(5000), // borne défensive — un relevé bancaire mensuel réel n'approche jamais cet ordre de grandeur
 });
 const confirmSchema = z.object({ paymentId: z.string().uuid(), note: z.string().optional() });
 
