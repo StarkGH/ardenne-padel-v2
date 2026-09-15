@@ -5,6 +5,7 @@ import { resetIntegrationTestData } from "../../testing/reset-db.js";
 import { NextoreCatalogRepository } from "./catalog.repository.js";
 import { NextoreAccountsRepository } from "./accounts.repository.js";
 import { AccountVersionConflictError, NextoreAccountsService } from "./accounts.service.js";
+import { NextorePaymentsRepository } from "./payments.repository.js";
 import { AuditLogService } from "../admin/audit-log.service.js";
 import { AuditLogRepository } from "../admin/audit-log.repository.js";
 
@@ -27,6 +28,7 @@ describe("NextoreAccountsService concurrency (CDC Nextore §30.3)", () => {
     accountsService = new NextoreAccountsService(
       new NextoreAccountsRepository(prisma),
       new NextoreCatalogRepository(prisma),
+      new NextorePaymentsRepository(prisma),
       new AuditLogService(new AuditLogRepository(prisma)),
     );
     const operator = await prisma.user.create({

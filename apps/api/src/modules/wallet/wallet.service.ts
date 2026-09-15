@@ -146,6 +146,75 @@ export class WalletService {
     logger.info({ event: "WalletDebited", walletAccountId: input.walletAccountId, bookingId: input.bookingId, amountCents: input.amountCents }, "wallet débité");
   }
 
+  /**
+   * Lot Nextore E (PAY-003/PAY-005) — symétrique de `debitForBooking` pour un
+   * paiement bar par crédits : pas de hold (paiement immédiat, pas de
+   * garantie différée comme une réservation), échoue entièrement (aucune
+   * écriture) si le solde disponible est insuffisant.
+   */
+  async debitForNextoreAccount(input: { walletAccountId: string; nextoreAccountId: string; amountCents: number }): Promise<void> {
+    assertCents(input.amountCents, "amountCents");
+    const balance = await this.getBalance(input.walletAccountId);
+    if (balance.availableCents < input.amountCents) {
+      throw new InsufficientWalletBalanceError(balance.availableCents, input.amountCents);
+    }
+
+    const breakdown = this.allocateAcrossOrigins(input.amountCents, balance.byOrigin);
+    const rows = breakdown
+      .filter((b) => b.amountCents > 0)
+      .map((b) => ({
+        id: randomUUID(),
+        walletAccountId: input.walletAccountId,
+        type: "DEBIT_NEXTORE_ACCOUNT" as const,
+        amountCents: -b.amountCents,
+        creditOrigin: b.origin,
+        nextoreAccountId: input.nextoreAccountId,
+      }));
+    await this.repo.createTransactions(rows);
+    logger.info(
+      { event: "WalletDebitedForNextore", walletAccountId: input.walletAccountId, nextoreAccountId: input.nextoreAccountId, amountCents: input.amountCents },
+      "wallet débité (paiement bar)",
+    );
+  }
+
+  /** Lot Nextore E — symétrique de `refundForBooking` pour l'annulation d'un paiement bar par crédits (COR-006). */
+  async refundForNextoreAccount(input: { walletAccountId: string; nextoreAccountId: string; amountCents: number }): Promise<void> {
+    assertCents(input.amountCents, "amountCents");
+    const [debited, alreadyRefunded] = await Promise.all([
+      this.repo.getDebitBreakdownForNextoreAccount(input.nextoreAccountId),
+      this.repo.getRefundedBreakdownForNextoreAccount(input.nextoreAccountId),
+    ]);
+
+    const refundable: Record<WalletCreditOrigin, number> = {
+      PAID: debited.PAID - alreadyRefunded.PAID,
+      BONUS: debited.BONUS - alreadyRefunded.BONUS,
+      ADMIN_COMP: debited.ADMIN_COMP - alreadyRefunded.ADMIN_COMP,
+    };
+    const totalRefundable = refundable.PAID + refundable.BONUS + refundable.ADMIN_COMP;
+    if (input.amountCents > totalRefundable) {
+      throw new AppError(
+        "VALIDATION_FAILED",
+        "Le montant à rembourser dépasse ce qui a été débité sur ce wallet pour ce compte bar.",
+        422,
+        { totalRefundable, requested: input.amountCents },
+      );
+    }
+
+    const breakdown = this.allocateProportionally(input.amountCents, refundable);
+    await this.repo.createTransactions(
+      breakdown
+        .filter((b) => b.amountCents > 0)
+        .map((b) => ({
+          id: randomUUID(),
+          walletAccountId: input.walletAccountId,
+          type: "REFUND_NEXTORE_ACCOUNT" as const,
+          amountCents: b.amountCents,
+          creditOrigin: b.origin,
+          nextoreAccountId: input.nextoreAccountId,
+        })),
+    );
+  }
+
   /** CDC §25.2, §27.3 — réserve des crédits comme garantie sans les dépenser. */
   async createHold(input: { walletAccountId: string; bookingId: string; amountCents: number }) {
     assertCents(input.amountCents, "amountCents");

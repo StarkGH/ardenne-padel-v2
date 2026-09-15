@@ -113,6 +113,9 @@ import { createNextoreCatalogRouter } from "./modules/nextore/catalog.routes.js"
 import { NextoreAccountsRepository } from "./modules/nextore/accounts.repository.js";
 import { NextoreAccountsService } from "./modules/nextore/accounts.service.js";
 import { createNextoreAccountsRouter } from "./modules/nextore/accounts.routes.js";
+import { NextorePaymentsRepository } from "./modules/nextore/payments.repository.js";
+import { NextorePaymentsService } from "./modules/nextore/payments.service.js";
+import { createNextorePaymentsRouter } from "./modules/nextore/payments.routes.js";
 import { ReportsService } from "./modules/admin/reports.service.js";
 import { createReportsRouter } from "./modules/admin/reports.routes.js";
 import { LegacyMigrationAdminService } from "./modules/admin/legacy-migration-admin.service.js";
@@ -325,8 +328,23 @@ export function createApp({
   app.use("/api/v1", createNextoreCatalogRouter(nextoreCatalogService));
 
   const nextoreAccountsRepository = new NextoreAccountsRepository(prisma);
-  const nextoreAccountsService = new NextoreAccountsService(nextoreAccountsRepository, nextoreCatalogRepository, auditLogService);
+  const nextorePaymentsRepository = new NextorePaymentsRepository(prisma);
+  const nextoreAccountsService = new NextoreAccountsService(
+    nextoreAccountsRepository,
+    nextoreCatalogRepository,
+    nextorePaymentsRepository,
+    auditLogService,
+  );
   app.use("/api/v1", createNextoreAccountsRouter(nextoreAccountsService, new CrmRepository(prisma)));
+
+  const nextorePaymentsService = new NextorePaymentsService(
+    nextorePaymentsRepository,
+    nextoreAccountsRepository,
+    nextoreAccountsService,
+    walletService,
+    auditLogService,
+  );
+  app.use("/api/v1", createNextorePaymentsRouter(nextorePaymentsService));
 
   // --- AFPadel (fédération) — import de l'effectif du club ---
   const afpadelProvider = isAfpadelConfigured(config)

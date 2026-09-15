@@ -1,6 +1,7 @@
 import { AppError, ErrorCodes, assertCents } from "@ardenne/shared";
 import type { NextoreAccountsRepository } from "./accounts.repository.js";
 import type { NextoreCatalogRepository } from "./catalog.repository.js";
+import type { NextorePaymentsRepository } from "./payments.repository.js";
 import type { AuditLogService } from "../admin/audit-log.service.js";
 
 export class AccountVersionConflictError extends AppError {
@@ -36,6 +37,7 @@ export class NextoreAccountsService {
   constructor(
     private readonly repo: NextoreAccountsRepository,
     private readonly catalogRepo: NextoreCatalogRepository,
+    private readonly paymentsRepo: NextorePaymentsRepository,
     private readonly auditLog: AuditLogService,
   ) {}
 
@@ -69,10 +71,34 @@ export class NextoreAccountsService {
     return account;
   }
 
-  /** ACC-007 — total dû, calculé ligne par ligne (quantity peut être fractionnaire). */
-  async getDueTotalCents(accountId: string): Promise<number> {
+  /** ACC-007 — total des lignes actives, avant tout paiement (quantity peut être fractionnaire). */
+  async getSalesTotalCents(accountId: string): Promise<number> {
     const lines = await this.repo.listActiveLines(accountId);
     return lines.reduce((sum, line) => sum + Math.round(Number(line.quantity) * line.unitPriceCentsAtSale), 0);
+  }
+
+  /**
+   * ACC-007/ACC-008 — solde restant dû = ventes actives - paiements
+   * enregistrés (RECORDED). Peut être négatif (trop-perçu, ACC-009/SPL-006) —
+   * volontairement non clampé à zéro : le restituer explicitement plutôt que
+   * de le masquer est la décision retenue pour ce lot (pas encore de
+   * workflow monnaie/pourboire/crédit — Lot F).
+   */
+  async getDueTotalCents(accountId: string): Promise<number> {
+    const [sales, paid] = await Promise.all([this.getSalesTotalCents(accountId), this.paymentsRepo.getRecordedTotalCents(accountId)]);
+    return sales - paid;
+  }
+
+  /**
+   * Lot Nextore E — première transition OPEN -> PARTIALLY_PAID dès qu'un
+   * paiement (même partiel) est enregistré. Idempotent : n'agit que si le
+   * compte est encore OPEN, ignore silencieusement sinon (déjà
+   * PARTIALLY_PAID ou CLOSED — appelé après chaque paiement).
+   */
+  async markPartiallyPaidIfOpen(accountId: string): Promise<void> {
+    const account = await this.getAccount(accountId);
+    if (account.status !== "OPEN") return;
+    await this.repo.updateWithVersionCheck(accountId, account.version, { status: "PARTIALLY_PAID" });
   }
 
   /** GRP-001/002 — participant identifié (customerId) ou local (displayName). */

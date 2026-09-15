@@ -6,6 +6,7 @@ import { NextoreCatalogRepository } from "./catalog.repository.js";
 import { NextoreCatalogService } from "./catalog.service.js";
 import { NextoreAccountsRepository } from "./accounts.repository.js";
 import { AccountVersionConflictError, NextoreAccountsService } from "./accounts.service.js";
+import { NextorePaymentsRepository } from "./payments.repository.js";
 import { AuditLogService } from "../admin/audit-log.service.js";
 import { AuditLogRepository } from "../admin/audit-log.repository.js";
 
@@ -27,6 +28,7 @@ describe("NextoreAccountsService (CDC Nextore §10/§11 — comptes, participant
     accountsService = new NextoreAccountsService(
       new NextoreAccountsRepository(prisma),
       new NextoreCatalogRepository(prisma),
+      new NextorePaymentsRepository(prisma),
       new AuditLogService(new AuditLogRepository(prisma)),
     );
 

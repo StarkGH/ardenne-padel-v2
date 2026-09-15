@@ -9,6 +9,8 @@ const BALANCE_AFFECTING_TYPES = [
   "REFUND_BOOKING",
   "ADJUSTMENT",
   "BONUS_EXPIRY",
+  "DEBIT_NEXTORE_ACCOUNT",
+  "REFUND_NEXTORE_ACCOUNT",
 ] as const;
 
 export class WalletRepository {
@@ -126,6 +128,33 @@ export class WalletRepository {
     const rows = await this.db.walletTransaction.groupBy({
       by: ["creditOrigin"],
       where: { bookingId, type: "REFUND_BOOKING", creditOrigin: { not: null } },
+      _sum: { amountCents: true },
+    });
+    const result: Record<WalletCreditOrigin, number> = { PAID: 0, BONUS: 0, ADMIN_COMP: 0 };
+    for (const row of rows) {
+      if (row.creditOrigin) result[row.creditOrigin] = row._sum.amountCents ?? 0;
+    }
+    return result;
+  }
+
+  /** Lot Nextore E — symétrique de `getDebitBreakdownForBooking` pour un compte bar. */
+  async getDebitBreakdownForNextoreAccount(nextoreAccountId: string): Promise<Record<WalletCreditOrigin, number>> {
+    const rows = await this.db.walletTransaction.groupBy({
+      by: ["creditOrigin"],
+      where: { nextoreAccountId, type: "DEBIT_NEXTORE_ACCOUNT", creditOrigin: { not: null } },
+      _sum: { amountCents: true },
+    });
+    const result: Record<WalletCreditOrigin, number> = { PAID: 0, BONUS: 0, ADMIN_COMP: 0 };
+    for (const row of rows) {
+      if (row.creditOrigin) result[row.creditOrigin] = Math.abs(row._sum.amountCents ?? 0);
+    }
+    return result;
+  }
+
+  async getRefundedBreakdownForNextoreAccount(nextoreAccountId: string): Promise<Record<WalletCreditOrigin, number>> {
+    const rows = await this.db.walletTransaction.groupBy({
+      by: ["creditOrigin"],
+      where: { nextoreAccountId, type: "REFUND_NEXTORE_ACCOUNT", creditOrigin: { not: null } },
       _sum: { amountCents: true },
     });
     const result: Record<WalletCreditOrigin, number> = { PAID: 0, BONUS: 0, ADMIN_COMP: 0 };

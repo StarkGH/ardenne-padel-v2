@@ -796,6 +796,11 @@ enum WalletTransactionType {
   HOLD_CAPTURED
   ADJUSTMENT
   BONUS_EXPIRY
+  /// Lot Nextore E — paiement bar par crédits (PAY-003). Symétrique à
+  /// DEBIT_BOOKING/REFUND_BOOKING mais référence `nextoreAccountId` au lieu
+  /// de `bookingId` (jamais les deux sur la même ligne).
+  DEBIT_NEXTORE_ACCOUNT
+  REFUND_NEXTORE_ACCOUNT
 }
 
 enum WalletCreditOrigin {
@@ -818,6 +823,9 @@ model WalletTransaction {
   bookingId            String?               @map("booking_id")
   creditPackPurchaseId String?               @map("credit_pack_purchase_id")
   walletHoldId         String?               @map("wallet_hold_id")
+  /// Lot Nextore E — référence libre vers `NextoreAccount.id`, même statut
+  /// que `bookingId` (pas de FK stricte, deux domaines distincts).
+  nextoreAccountId     String?               @map("nextore_account_id")
   reference            String?
   createdBy            String?               @map("created_by")
   metadata             Json?
@@ -826,6 +834,7 @@ model WalletTransaction {
   @@index([walletAccountId])
   @@index([bookingId])
   @@index([creditPackPurchaseId])
+  @@index([nextoreAccountId])
   @@map("wallet_transactions")
 }
 
@@ -1509,6 +1518,7 @@ model NextoreAccount {
 
   participants NextoreParticipant[]
   saleLines    NextoreSaleLine[]
+  payments     NextorePayment[]
 
   @@index([status])
   @@index([customerId])
@@ -1567,4 +1577,55 @@ model NextoreSaleLine {
   @@index([accountId])
   @@index([participantId])
   @@map("nextore_sale_lines")
+}
+
+// =====================================================================
+// Lot Nextore E — Paiements (cash/carte/crédits), idempotence
+// =====================================================================
+
+enum NextorePaymentMethod {
+  CASH
+  CARD
+  WALLET_CREDIT
+}
+
+/// CDC Nextore §12 (PAY-*). `PENDING` n'existe que pour `WALLET_CREDIT`, le
+/// temps du débit wallet (gate d'idempotence par insertion avant le débit,
+/// cf. NextorePaymentsService) — CASH/CARD passent directement à `RECORDED`
+/// en une seule écriture, déjà atomique. `FAILED` = débit wallet refusé
+/// après réservation de la ligne (rare : la disponibilité est déjà vérifiée
+/// avant insertion) ; ce statut n'est volontairement pas rejouable avec la
+/// même `idempotencyKey` dans ce lot (limitation documentée).
+enum NextorePaymentStatus {
+  PENDING
+  RECORDED
+  FAILED
+  REVERSED
+}
+
+/// CDC Nextore §12/§30.1 — `idempotencyKey` (unique) empêche qu'un double
+/// clic ou un retry réseau ne crée deux paiements (PAY-012, CDC §60 "Paiement
+/// déjà enregistré"). Jamais de suppression : une annulation passe par
+/// `reversalOfPaymentId`, motif obligatoire (COR-002/COR-004).
+model NextorePayment {
+  id                  String               @id @default(uuid())
+  accountId           String               @map("account_id")
+  account             NextoreAccount       @relation(fields: [accountId], references: [id])
+  participantId       String?              @map("participant_id")
+  amountCents         Int                  @map("amount_cents")
+  method              NextorePaymentMethod
+  status              NextorePaymentStatus @default(RECORDED)
+  externalReference   String?              @map("external_reference")
+  walletTransactionId String?              @map("wallet_transaction_id")
+  idempotencyKey      String               @unique @map("idempotency_key")
+  recordedByUserId    String               @map("recorded_by_user_id")
+  reversalOfPaymentId String?              @map("reversal_of_payment_id")
+  reversedByUserId    String?              @map("reversed_by_user_id")
+  reversedAt          DateTime?            @map("reversed_at")
+  reason              String?
+  createdAt           DateTime             @default(now()) @map("created_at")
+
+  @@index([accountId])
+  @@index([status])
+  @@map("nextore_payments")
 }
