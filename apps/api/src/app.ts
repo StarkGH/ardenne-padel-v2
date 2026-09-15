@@ -124,6 +124,9 @@ import { createNextoreCashSessionRouter } from "./modules/nextore/cash-session.r
 import { NextoreReconciliationRepository } from "./modules/nextore/reconciliation.repository.js";
 import { NextoreReconciliationService } from "./modules/nextore/reconciliation.service.js";
 import { createNextoreReconciliationRouter } from "./modules/nextore/reconciliation.routes.js";
+import { NextoreReportingRepository } from "./modules/nextore/reporting.repository.js";
+import { NextoreReportingService } from "./modules/nextore/reporting.service.js";
+import { createNextoreReportingRouter } from "./modules/nextore/reporting.routes.js";
 import { ReportsService } from "./modules/admin/reports.service.js";
 import { createReportsRouter } from "./modules/admin/reports.routes.js";
 import { LegacyMigrationAdminService } from "./modules/admin/legacy-migration-admin.service.js";
@@ -374,6 +377,9 @@ export function createApp({
 
   const nextoreReconciliationService = new NextoreReconciliationService(new NextoreReconciliationRepository(prisma), auditLogService);
   app.use("/api/v1", createNextoreReconciliationRouter(nextoreReconciliationService));
+
+  const nextoreReportingService = new NextoreReportingService(new NextoreReportingRepository(prisma));
+  app.use("/api/v1", createNextoreReportingRouter(nextoreReportingService));
 
   // --- AFPadel (fédération) — import de l'effectif du club ---
   const afpadelProvider = isAfpadelConfigured(config)
