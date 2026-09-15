@@ -24,17 +24,25 @@ Base SQLite locale : ardenne_access.db (a cote de ce script, comme le POC).
 import argparse
 import json
 import os
+import queue
 import signal
 import sqlite3
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 from pymodbus.client import ModbusTcpClient
+
+try:
+    import serial  # pyserial — optionnel : le service reste utile (LOGO!, synchro) sans clavier branché.
+except ImportError:  # pragma: no cover
+    serial = None
 
 
 @contextmanager
@@ -130,6 +138,80 @@ class LogoDriver:
             return False
         finally:
             client.close()
+
+
+# ---------------------------------------------------------------------------
+# Clavier Dahua — lu via le pont Arduino Nano (wiegand_keypad_bridge.ino,
+# apps/api/src/scripts, envoie "KEY:<car>" par touche décodée, protocole
+# confirmé en conditions réelles le 2026-09-15). Tourne dans un thread
+# séparé : la lecture série (readline) est bloquante, jamais acceptable
+# dans la boucle principale qui doit aussi gérer la synchro et le LOGO!.
+# ---------------------------------------------------------------------------
+
+
+class KeypadReader:
+    """Lit le port série du Nano et empile les codes complets (terminés par
+    '#') dans une queue thread-safe. '*' efface la saisie en cours (touche
+    d'annulation classique sur un clavier de contrôle d'accès). Ne lève
+    jamais côté appelant : port absent/débranché -> file d'attente
+    simplement toujours vide, jamais une exception qui arrêterait le
+    service (même principe que le reste de ce fichier)."""
+
+    def __init__(self, port: str, baudrate: int = 9600, reconnect_delay: float = 5.0):
+        self.port = port
+        self.baudrate = baudrate
+        self.reconnect_delay = reconnect_delay
+        self.codes: "queue.Queue[str]" = queue.Queue()
+        self._buffer = ""
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self.connected = False
+
+    def start(self):
+        if serial is None:
+            print("[clavier] pyserial n'est pas installé — clavier Dahua désactivé (pip install pyserial).")
+            return
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+
+    def _run(self):
+        while not self._stop.is_set():
+            try:
+                with serial.Serial(self.port, self.baudrate, timeout=1) as ser:
+                    self.connected = True
+                    print(f"[clavier] connecté sur {self.port}")
+                    while not self._stop.is_set():
+                        line = ser.readline().decode("ascii", errors="ignore").strip()
+                        if line:
+                            self._handle_line(line)
+            except Exception as exc:  # noqa: BLE001
+                self.connected = False
+                print(f"[clavier] port {self.port} indisponible ({exc}) — nouvelle tentative dans {self.reconnect_delay}s")
+                time.sleep(self.reconnect_delay)
+
+    def _handle_line(self, line: str):
+        if not line.startswith("KEY:"):
+            return  # ex. "READY", "ERR:...": diagnostic seulement, jamais transmis au reste du service.
+        key = line[len("KEY:") :]
+        if key == "*":
+            self._buffer = ""
+            return
+        self._buffer += key
+        if key == "#":
+            self.codes.put(self._buffer)
+            self._buffer = ""
+
+    def drain(self) -> list:
+        codes = []
+        while True:
+            try:
+                codes.append(self.codes.get_nowait())
+            except queue.Empty:
+                break
+        return codes
 
 
 # ---------------------------------------------------------------------------
@@ -334,10 +416,11 @@ class ApiClient:
 
 
 class AccessService:
-    def __init__(self, api: ApiClient, cache: LocalCache, logo: LogoDriver):
+    def __init__(self, api: ApiClient, cache: LocalCache, logo: LogoDriver, keypad: "KeypadReader | None" = None):
         self.api = api
         self.cache = cache
         self.logo = logo
+        self.keypad = keypad
 
     def sync_snapshot(self):
         """Synchro AP V2 -> cache local. Ne leve jamais : en cas d'echec reseau,
@@ -422,6 +505,33 @@ class AccessService:
             except Exception as exc:  # noqa: BLE001
                 print(f"[eclairage] echec pilotage LOGO! pour {zone_key} : {exc}")
 
+    def process_keypad_codes(self):
+        """Valide chaque code tapé au clavier Dahua contre le cache local —
+        aucun appel réseau ici (dossier technique §40 : validation locale,
+        jamais d'appel serveur au moment de la saisie du code). Un succès
+        pulse directement la porte (un seul relais physique actuellement,
+        cf. commentaire de `evaluate_lighting` sur le mapping zone -> sortie).
+        Chaque tentative (accordée ou refusée) est journalisée via la même
+        file d'événements que le reste du service, remontée au serveur au
+        prochain `flush_events` — utile pour l'audit, jamais bloquant ici.
+        """
+        if not self.keypad:
+            return
+        for code in self.keypad.drain():
+            result = self.cache.validate_code(code)
+            occurred_at = datetime.now(timezone.utc).isoformat()
+            if result:
+                scope, origin = result
+                print(f"[clavier] ACCES ACCORDE — code {code} ({scope}, {origin})")
+                self.cache.queue_event(str(uuid.uuid4()), "ACCESS_GRANTED", {"scope": scope, "origin": origin}, occurred_at)
+                try:
+                    self.logo.door_open()
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[clavier] échec ouverture porte malgré code valide : {exc}")
+            else:
+                print(f"[clavier] ACCES REFUSE — code {code}")
+                self.cache.queue_event(str(uuid.uuid4()), "ACCESS_DENIED", {}, occurred_at)
+
     def flush_events(self):
         pending = self.cache.pending_events()
         if not pending:
@@ -465,10 +575,12 @@ def run_loop(service: AccessService, sync_interval: float, light_check_interval:
                 service.flush_events()
                 service.send_heartbeat()
                 last_sync = now
-            # L'eclairage est evalue a chaque tick (plus frequent que la synchro
-            # complete) — precision de l'horaire, et fonctionne meme hors-ligne
-            # sur le seul cache local.
+            # L'eclairage et le clavier sont evalues a chaque tick (plus frequent
+            # que la synchro complete) — precision de l'horaire pour l'un,
+            # latence d'ouverture minimale pour l'autre — et fonctionnent meme
+            # hors-ligne sur le seul cache local.
             service.evaluate_lighting()
+            service.process_keypad_codes()
         except Exception as exc:  # noqa: BLE001
             print(f"[loop] erreur transitoire, on continue : {exc}")
         time.sleep(light_check_interval)
@@ -503,6 +615,12 @@ def main():
     parser.add_argument("--sync-interval-seconds", type=float, default=3.0)
     parser.add_argument("--light-check-interval-seconds", type=float, default=3.0)
     parser.add_argument("--test-code", help="Valide un code contre le cache local et quitte, sans boucle ni reseau")
+    parser.add_argument(
+        "--keypad-serial-port",
+        default=os.environ.get("ARDENNE_KEYPAD_SERIAL_PORT", "/dev/ttyUSB0"),
+        help="Port serie du pont Nano (wiegand_keypad_bridge.ino). Absent/debranche -> clavier desactive, le reste du service continue normalement.",
+    )
+    parser.add_argument("--no-keypad", action="store_true", help="Desactive explicitement la lecture du clavier (ex. banc de test sans Nano branche).")
     args = parser.parse_args()
 
     cache = LocalCache(Path(args.db))
@@ -513,7 +631,11 @@ def main():
 
     api = ApiClient(args.base_url, args.key)
     logo = LogoDriver()
-    service = AccessService(api, cache, logo)
+    keypad = None
+    if not args.no_keypad:
+        keypad = KeypadReader(args.keypad_serial_port)
+        keypad.start()
+    service = AccessService(api, cache, logo, keypad)
 
     # Premiere synchro immediate pour ne pas demarrer a vide.
     service.sync_snapshot()
